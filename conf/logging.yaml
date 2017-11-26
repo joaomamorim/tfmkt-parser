@@ -1,0 +1,48 @@
+version: 1
+formatters:
+  brief:
+    format: '%(levelname)s - %(message)s'
+  precise:
+    format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+handlers:
+  console: #This is an id
+    class : logging.StreamHandler
+    formatter: brief
+    level   : DEBUG
+  file: #This is another id
+    class : logging.FileHandler
+    formatter: precise
+    filename: "log/session.log"
+    mode: w
+loggers:
+  tfmktparser:
+    # other configuration for logger 'foo.bar.baz'
+    handlers: [console, file]
+    level: DEBUG
+
+# This was the old, programatical way to configure the logging device
+
+#        # Logging configuration #
+#        # Get a reference to python 2.7 logging facility.
+#        # Set the logging level to a low enough value
+#        self.log = logging.getLogger('official-tfmk-tfmktparser-logger')
+#        self.log.setLevel(logging.DEBUG)
+#
+#        # Create one handler for the console messages and another one for file messages
+#        # The full log will be recorded to a log file, but we will only print messages
+#        # with a higher severity than DEBUG to console
+#        ch = logging.StreamHandler()  # Console Handler
+#        ch.setLevel(logging.INFO)
+#        fh = logging.FileHandler('python-miner.log', 'w')  # File Handler
+#        fh.setLevel(logging.DEBUG)
+#
+#        # A formatter will define the layout of the messages
+#        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+#
+#        # add formatter to owe handlers
+#        ch.setFormatter(formatter)
+#        fh.setFormatter(formatter)
+#
+#        # add handlers to our logger
+#        self.log.addHandler(ch)
+#        self.log.addHandler(fh)
