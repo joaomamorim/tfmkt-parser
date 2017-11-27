@@ -15,7 +15,7 @@ LOCAL = 0
 REMOTE = 1
 HOST = "https://www.transfermarkt.co.uk"
 source = REMOTE
-HOME_RAW = "D:\\git-playground\\tfmkt-parser\\tfmkt-parser"
+HOME_RAW = "C:\\Users\\david\\git\\tfmkt-parser\\"
 
 
 """
