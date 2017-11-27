@@ -15,12 +15,13 @@ LOCAL = 0
 REMOTE = 1
 HOST = "https://www.transfermarkt.co.uk"
 source = REMOTE
+HOME_RAW = "D:\\git-playground\\tfmkt-parser\\tfmkt-parser"
 
 
 """
-Helper function
+Helper function. Downloads from URL with retries
 """
-@retry
+@retry(stop_max_attempt_number=3)
 def safe_url_getter(uri):
         logger = logging.getLogger(__name__)
         try:
@@ -55,7 +56,7 @@ class Season:
         self.clubs_desc = []
 
         # Load master html from either a local file of from the remote server
-        self.local_uri = "file:" + urllib.pathname2url("C:\\Users\\david\\git\\tfmkt-parser\\" + "raw/sub-master_2017.html".replace('/', '\\'))
+        self.local_uri = "file:" + urllib.pathname2url(HOME_RAW + "raw/sub-master_2017.html".replace('/', '\\'))
         self.remote_uri = "https://www.transfermarkt.co.uk/vereins-statistik/wertvollstemannschaften/marktwertetop"
         master_uri = self.local_uri if source == LOCAL else self.remote_uri
 
@@ -156,9 +157,7 @@ class Club:
 
         # Set local and remote uri attributes
         self.remote_uri = uri
-        self.local_uri = "file:" + urllib.pathname2url(
-                "C:\\Users\\david\\git\\tfmkt-parser\\" +
-                ("raw/clubs/CL_2017_%05d_%s.html" % (id, name)).replace('/', '\\'))
+        self.local_uri = "file:" + urllib.pathname2url(HOME_RAW + ("raw/clubs/CL_2017_%05d_%s.html" % (id, name)).replace('/', '\\'))
 
         # Select the uri to use for the current mode
         self.current_uri = self.remote_uri if source == REMOTE else self.local_uri
@@ -213,7 +212,7 @@ class Club:
                 return matching_players
         # If the seach item is an integer, find by index
         if isinstance(item, int):
-            return self.clubs[0]
+            return self.players[0]
 
 
 
@@ -251,7 +250,7 @@ class Player:
         self.tables = {}
 
         # Set local and remote uri attributes
-        self.local_uri = "file:" + urllib.pathname2url('C:\\Users\\david\git\\tfmkt-parser\\raw\\clubs\\CL_2017_%05d_%s\\PL_%05d_%s.html' % (club_id, club_name, self.id, self.name))
+        self.local_uri = "file:" + urllib.pathname2url(HOME_RAW + 'raw\\clubs\\CL_2017_%05d_%s\\PL_%05d_%s.html' % (club_id, club_name, self.id, self.name))
         self.remote_uri = remote_uri
 
         # Select uri to be used according to set mode
@@ -285,7 +284,7 @@ class Player:
     def set_position(self, position):
         try:
             self.position = self.POSITION_MAPPER[position]
-            self.logger.debug("Setted {0} ({1}) position to {2}".format(self.get_name, self.get_id, position))
+            self.logger.debug("Setted {0} ({1}) position to {2}".format(self.name, self.id, position))
         except:
             self.position = self.UNK
 
