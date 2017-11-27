@@ -52,6 +52,7 @@ class Season:
 
         # Season initialization
         self.clubs = []
+        self.clubs_desc = []
 
         # Load master html from either a local file of from the remote server
         self.local_uri = "file:" + urllib.pathname2url("C:\\Users\\david\\git\\tfmkt-parser\\" + "raw/sub-master_2017.html".replace('/', '\\'))
@@ -160,11 +161,12 @@ class Club:
                 ("raw/clubs/CL_2017_%05d_%s.html" % (id, name)).replace('/', '\\'))
 
         # Select the uri to use for the current mode
-        uri = self.remote_uri if source == REMOTE else self.local_uri
+        self.current_uri = self.remote_uri if source == REMOTE else self.local_uri
 
+    def create_soup(self):
         # Initialize Club
-        self.logger.info("Creating club from source {}".format(uri))
-        self.soup = BeautifulSoup(safe_url_getter(uri), "html5lib")
+        self.logger.info("Creating club from source {}".format(self.current_uri))
+        self.soup = BeautifulSoup(safe_url_getter(self.current_uri), "html5lib")
         self.logger.info("Done initializing {}".format(self.__repr__()))
 
     def init_players(self):
@@ -179,6 +181,7 @@ class Club:
             url_re = re.match(r"https://www.transfermarkt.co.uk/([\w\-]+)/leistungsdaten/spieler/([0-9]+)/.*$",
                               remote_url).groups()
             self.players.append(Player(int(url_re[1]), url_re[0], remote_url, self.id, self.name))
+        self.logger.info("{} finished initializing players".format(self.__repr__()))
 
     def persist(self):
         if not os.path.exists("raw/clubs"):
@@ -245,18 +248,19 @@ class Player:
         self.club_id = club_id
         self.club_name = club_name
         self.position = ""
-        self.tables = []
+        self.tables = {}
 
         # Set local and remote uri attributes
         self.local_uri = "file:" + urllib.pathname2url('C:\\Users\\david\git\\tfmkt-parser\\raw\\clubs\\CL_2017_%05d_%s\\PL_%05d_%s.html' % (club_id, club_name, self.id, self.name))
         self.remote_uri = remote_uri
 
         # Select uri to be used according to set mode
-        player_uri = self.local_uri if source == LOCAL else self.remote_uri
+        self.current_uri = self.local_uri if source == LOCAL else self.remote_uri
 
+    def create_soup(self):
         # Create a the BeautifulSoup object containing the html for the master
-        self.logger.debug("Player URI is {}, creating soup".format(player_uri))
-        self.soup = BeautifulSoup(safe_url_getter(player_uri), "html5lib")
+        self.logger.debug("Player URI is {}, creating soup".format(self.current_uri))
+        self.soup = BeautifulSoup(safe_url_getter(self.current_uri), "html5lib")
         self.logger.debug("{} soup is ready".format(self.__repr__()))
 
     def __repr__(self):
@@ -285,12 +289,7 @@ class Player:
         except:
             self.position = self.UNK
 
-    def parse(self):
-        # Descargamos html y seteamos la sopa con el objeto BeautifulSoup correspondiente
-        html = safe_url_getter(self.uri)
-        self.parse_tables()
-
-    def parse_tables(self):
+    def init_tables(self):
         # Finds all responsive tables in the document. Keep in mind that the first one is a summary table
         # that we want to discard
         root_tables = self.soup.select("div.box div.responsive-table")
