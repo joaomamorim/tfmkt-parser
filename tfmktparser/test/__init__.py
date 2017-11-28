@@ -1,10 +1,14 @@
 #C:\Python27\python.exe -m unittest tfmktparser.test
 import unittest
 import tfmktparser
+import logging.config
+import yaml
+
+logging.config.dictConfig(yaml.load(open('conf/logging.yaml')))
 
 class TestParsedStatistics(unittest.TestCase):
     def test_entries(self):
-        tfmktparser.source = tfmktparser.LOCAL
+        tfmktparser.source = tfmktparser.REMOTE
         season = tfmktparser.Season()
         season.init_clubs()
         season['fc-barcelona'].create_soup()

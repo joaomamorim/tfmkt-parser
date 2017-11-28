@@ -15,7 +15,8 @@ LOCAL = 0
 REMOTE = 1
 HOST = "https://www.transfermarkt.co.uk"
 source = REMOTE
-HOME_RAW = "C:\\Users\\david\\git\\tfmkt-parser\\"
+#HOME_RAW = "C:\\Users\\david\\git\\tfmkt-parser\\"
+HOME_RAW = "D:\\git-playground\\tfmkt-parser\\tfmkt-parser\\"
 
 
 """
@@ -32,7 +33,7 @@ def safe_url_getter(uri):
             if err.code == 404:
                 return err.read()
         except urllib2.URLError:
-            logger.warn("Attempt to download file failed: {}".format("Some message"))
+            logger.warn("Attempt to download file {} failed: {}".format(uri, urllib2.URLError.message))
         else:
             return file.read()
 
@@ -61,7 +62,7 @@ class Season:
         master_uri = self.local_uri if source == LOCAL else self.remote_uri
 
         # Create a the BeautifulSoup object containing the html for the master
-        self.logger.debug("Master URI is {}, creating soup".format(master_uri))
+
         self.soup = BeautifulSoup(safe_url_getter(master_uri), "html5lib")
         self.logger.debug("Master soup is ready")
 
@@ -299,13 +300,17 @@ class Player:
         # Zip tables and ids in an iterable pair key-value
         id_table_pairs = izip(table_ids, tables)
         for id, table in id_table_pairs:
+            self.logger.debug("Parsing table {}".format(id))
             self.tables[id] = self.parse_table(table)
+            self.logger.debug("Finished parsing table {}".format(id))
 
     def parse_table(self, table):
-        rows = [row for row in table.find("tbody").find_all("tr") if not row['class'][0] == "bg_rot_20"]
+        rows = [row for row in table.find("tbody").find_all("tr") if not row['class'][0] in ("bg_rot_20", "bg_gelb_20")]
+        self.logger.debug("Found {} valid rows in this table".format(len(rows)))
         return pd.DataFrame.from_dict([self.parse_row(row) for row in rows], orient='columns')
 
     def parse_row(self, row):
+        self.logger.debug("[%40s] parsing row \n{\n %s \n}" % (self.name, row))
         figures = row.select("td")
         appearance = {}
         appearance['_DATE_'] = figures[1].string.strip()
