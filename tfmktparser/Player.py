@@ -28,7 +28,7 @@ class Player:
         "Centre-Forward" :      FOR
     }
 
-    def __init__(self, id, name, remote_uri, club_id, club_name):
+    def __init__(self, id, name, remote_uri, club_id, club_name, source=LOCAL):
         # Get a logger reference for all objects of player class to use
         self.logger = logging.getLogger(__name__)
 
@@ -40,22 +40,23 @@ class Player:
         self.position = ""
         self.soup = None
         self.tables = {}
+        self.source = LOCAL
 
         # Set local and remote uri attributes
         self.local_uri = "file:" + urllib.pathname2url(HOME_RAW + 'raw\\clubs\\CL_2017_%05d_%s\\PL_%05d_%s.html' % (club_id, club_name, self.id, self.name))
         self.remote_uri = remote_uri
 
         # Select uri to be used according to set mode
-        self.current_uri = self.local_uri if source == LOCAL else self.remote_uri
+        self.update_current_uri()
 
     def create_soup(self):
         # Create a the BeautifulSoup object containing the html for the master
-        self.logger.debug("Player URI is {}, creating soup".format(self.current_uri))
+        self.logger.info("Player URI is {}, creating soup".format(self.current_uri))
         self.soup = BeautifulSoup(safe_url_getter(self.current_uri), "html5lib")
-        self.logger.debug("{} soup is ready".format(self.__repr__()))
+        self.logger.info("{} soup is ready".format(self.__repr__()))
 
     def __repr__(self):
-        return "<Player: '%s' %d tables>" % (self.name, len(self.tables))
+        return "<Player: '%s' %d tables%s>" % (self.name, len(self.tables), " (not souped)" if self.soup is None else "")
 
     def __getitem__(self, item):
         # If the search item is a string, assume regex and try to match all possible team names
@@ -130,4 +131,22 @@ class Player:
             os.makedirs(club_dir)
         with open("%s/PL_%05d_%s.html" % (club_dir, self.id, self.name), 'w') as f:
             f.write(str(self.soup))
+
+    """
+    Toggle mode form LOCAL to REMOTE or viceversa. It propagates the change all over the season clubs and players
+    """
+    def toggle_source(self):
+        self.logger.debug("{} source is {}, toggling...".format(self.__class__.__name__, self.source))
+        # Toggle source attribute
+        self.source = REMOTE if self.source == LOCAL else LOCAL
+        # Update current uri
+        self.update_current_uri()
+        self.logger.debug("{} source is {}".format(self.__class__.__name__, self.source))
+
+    """
+    Update the pointer to the current URI of the player, either to the transfermarket server or to a local file
+    """
+    def update_current_uri(self):
+        self.current_uri = self.local_uri if self.source == LOCAL else self.remote_uri
+
 

@@ -16,7 +16,7 @@ class Club:
     for this club. The 'players' list gets filled up when a call to the class method 'init_players' is made.
     The 'persist' method saves the season to filesystem using a known structure.
     """
-    def __init__(self, id, name, uri):
+    def __init__(self, id, name, uri, source = LOCAL):
         # Get a logger reference for all objects of class Club
         self.logger = logging.getLogger(__name__)
 
@@ -25,13 +25,20 @@ class Club:
         self.name = name
         self.players = []
         self.soup = None
+        self.source = source
 
         # Set local and remote uri attributes
         self.remote_uri = uri
         self.local_uri = "file:" + urllib.pathname2url(HOME_RAW + ("raw/clubs/CL_2017_%05d_%s.html" % (id, name)).replace('/', '\\'))
 
         # Select the uri to use for the current mode
-        self.current_uri = self.remote_uri if source == REMOTE else self.local_uri
+        self.update_current_uri()
+
+    """
+    Update the pointer to the current URI of the player, either to the transfermarket server or to a local file
+    """
+    def update_current_uri(self):
+        self.current_uri = self.local_uri if self.source == LOCAL else self.remote_uri
 
     def create_soup(self):
         # Initialize Club
@@ -39,7 +46,17 @@ class Club:
         self.soup = BeautifulSoup(safe_url_getter(self.current_uri), "html5lib")
         self.logger.info("Done initializing {}".format(self.__repr__()))
 
+    @property
+    def is_souped(self):
+        return True if self.soup is not None else False
+
     def init_players(self):
+        # The club soup needs to be up and ready before we try to initialize players.
+        # We check for 'soupness' frist
+        if not self.is_souped:
+            self.logger.error("{} soup is not initialized, 'create_soup' first".format(self.__repr__()))
+            return
+
         # Start filling up the 'players' list
         self.logger.info("Initialzing players in {}".format(self.name))
 
@@ -50,7 +67,7 @@ class Club:
             remote_urls.append(remote_url)
             url_re = re.match(r"https://www.transfermarkt.co.uk/([\w\-]+)/leistungsdaten/spieler/([0-9]+)/.*$",
                               remote_url).groups()
-            self.players.append(Player(int(url_re[1]), url_re[0], remote_url, self.id, self.name))
+            self.players.append(Player(int(url_re[1]), url_re[0], remote_url, self.id, self.name, self.source))
         self.logger.info("{} finished initializing players".format(self.__repr__()))
 
     def persist(self):
@@ -63,6 +80,19 @@ class Club:
         for player in self.players:
             if player.soup is not None:
                 player.persist()
+
+    """
+    Toggle mode form LOCAL to REMOTE or viceversa. It propagates the change all over the season clubs and players
+    """
+    def toggle_source(self):
+        self.logger.debug("{} source is {}, toggling...".format(self.__class__.__name__, self.source))
+        # Toggle source attribute
+        self.source = REMOTE if self.source == LOCAL else LOCAL
+        # Update current uri
+        self.update_current_uri()
+        self.logger.debug("{} source is {}".format(self.__class__.__name__, self.source))
+        for player in self.players:
+            player.toggle_source()
 
     def __repr__(self):
         if self.players == None:

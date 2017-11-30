@@ -19,19 +19,21 @@ class Season:
     for this season. The 'clubs' list gets filled up when a call to the class method 'init_clubs' is made.
     The 'persist' method saves the season to filesystem using a known structure.
     """
-    def __init__(self):
+    def __init__(self, source = LOCAL):
         # Get a logger reference for all objects of Season class to use
         self.logger = logging.getLogger(__name__)
         self.logger.info("Started season!")
 
         # Season initialization
+        self.year = 2017
         self.clubs = []
         self.clubs_desc = []
+        self.source = source
 
         # Load master html from either a local file of from the remote server
         self.local_uri = "file:" + urllib.pathname2url(HOME_RAW + "raw/sub-master_2017.html".replace('/', '\\'))
         self.remote_uri = "https://www.transfermarkt.co.uk/vereins-statistik/wertvollstemannschaften/marktwertetop"
-        master_uri = self.local_uri if source == LOCAL else self.remote_uri
+        master_uri = self.local_uri if self.source == LOCAL else self.remote_uri
 
         # Create a the BeautifulSoup object containing the html for the master
 
@@ -53,9 +55,10 @@ class Season:
             uri_re = re.match(
                 "https://www.transfermarkt.co.uk/([\w\-]+)/startseite/verein/([0-9]+)/saison_id/2017",
                 remote_url).groups()
-            self.clubs.append(Club(int(uri_re[1]), uri_re[0], remote_url))
+            self.clubs.append(Club(int(uri_re[1]), uri_re[0], remote_url, self.source))
         elapsed_time = time.time() - start_time
-        self.logger.info("Finished initializing clubs ({} seconds)".format(elapsed_time))
+        self.logger.info("Finished initializing clubs (%.2f seconds)" % (elapsed_time))
+        #self.logger.info("Finished initializing clubs ({} seconds)".format(elapsed_time))
 
     """
     Force all players in a season to load their respective htmls from either local or remote and parse it into
@@ -65,11 +68,15 @@ class Season:
     def init_players(self):
         self.logger.info("Initializing players")
         start_time = time.time()
-        # Call for initialization of all reason players
-        for club in self.clubs:
-            club.init_players()
-        elapsed_time = time.time() - start_time
-        self.logger.info("Finished initializing players ({} seconds)".format(elapsed_time))
+        # Clubs need to be initialized before we call on player for initialization
+        if self.size is not None and self.size == self.size_souped:
+            # Call for initialization of all reason players
+            for club in self.clubs:
+                club.init_players()
+            elapsed_time = time.time() - start_time
+            self.logger.info("Finished initializing players ({} seconds)".format(elapsed_time))
+        else:
+            self.logger.error("State of 'clubs' does not allow for players initialization")
 
     """
     Persists the season to disk. It recursively saves the in-memory representation of the season to a directory tree with all the
@@ -77,13 +84,53 @@ class Season:
     before we call this method
     """
     def persist(self):
+        self.logger.debug("Persisting season {}".format(self.__repr__()))
         if not os.path.exists("raw"):
             os.makedirs("raw")
         with open("raw/sub-master_2017.html", 'w') as f:
             f.write(str(self.soup))
         for club in self.clubs:
             if club.soup is not None:
+                self.logger.debug("Persisting {}".format(club.__repr__()))
                 club.persist()
+
+    """
+    Toggle mode form LOCAL to REMOTE or viceversa. It propagates the change all over the season clubs and players
+    """
+    def toggle_source(self):
+        self.logger.info("{} source is {}, toggling...".format(self.__class__.__name__, self.source))
+        # Toggle source attribute
+        self.source = REMOTE if self.source == LOCAL else LOCAL
+        # Update current uri
+        self.update_current_uri()
+        self.logger.info("{} source is {}".format(self.__class__.__name__, self.source))
+        for club in self.clubs:
+            club.toggle_source()
+
+    """
+    Update the pointer to the current URI of the player, either to the transfermarket server or to a local file
+    """
+    def update_current_uri(self):
+        self.current_uri = self.local_uri if self.source == LOCAL else self.remote_uri
+
+    """
+    Total number of club object currently in the season
+    """
+    @property
+    def size(self):
+        if self.clubs is not None:
+            return len(self.clubs)
+        else:
+            return None
+
+    """
+    Total number of club objects currently in the season which have loaded their html soup
+    """
+    @property
+    def size_souped(self):
+        return len(filter(lambda x: x.soup is not None, self.clubs))
+
+
 
     """
     Implementation of the magic method __getitem_. Using this implementation we are able to find 'Club' objects
@@ -109,3 +156,13 @@ class Season:
         # If the seach item is an integer, find by index
         if isinstance(item, int):
             return self.clubs[0]
+
+    """
+    Create official string representation of a season. Let us give a summary of clubs an players in one
+    liner and thats all
+    """
+    def __repr__(self):
+        if self.clubs == None:
+            return "<Season: '%d' %s>" % (self.year, "Empty")
+        else:
+            return "<Season: '%d' %d clubs (%d souped)>" % (self.year, self.size, self.size_souped)
