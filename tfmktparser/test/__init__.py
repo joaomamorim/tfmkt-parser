@@ -10,8 +10,7 @@ import tfmktparser.settings as tfmkdefs
 
 class TestParsedStatistics(unittest.TestCase):
     def test_entries(self):
-        tfmkdefs.source = tfmkdefs.REMOTE
-        season = tfmkse.Season()
+        season = tfmkse.Season(1)
         season.init_clubs()
         season['fc-barcelona'].create_soup()
         season['fc-barcelona'].init_players()
@@ -21,18 +20,20 @@ class TestParsedStatistics(unittest.TestCase):
         self.assertEqual(lmessi_cl[lmessi_cl._DATE_ == "Sep 12, 2017"].iloc[0]['_GS_'], 2)
 
     def test_persistence(self):
-        tfmkdefs.source = tfmkdefs.REMOTE
-        season = tfmkse.Season()
+        season = tfmkse.Season(1)
         season.init_clubs()
-        season['real-madrid'].create_soup()
-        season['real-madrid'].init_players()
-        season['real-madrid']['keylor-navas'].create_soup()
+        season['fc-barcelona'].create_soup()
+        season['fc-barcelona'].init_players()
+        season['fc-barcelona']['lionel-messi'].create_soup()
+        season['fc-barcelona']['lionel-messi'].init_tables()
         season.persist()
-        tfmkdefs.source = tfmkdefs.LOCAL
-        season_local = tfmkse.Season()
-        season_local['real-madrid'].create_soup()
-        season_local['real-madrid'].init_players()
-        season_local['real-madrid']['keylor-navas'].create_soup()
+        #del season
+        season_local = tfmkse.Season(0)
+        season_local.init_clubs()
+        season_local['fc-barcelona'].create_soup()
+        season_local['fc-barcelona'].init_players()
+        season_local['fc-barcelona']['lionel-messi' ].create_soup()
+        season_local['fc-barcelona']['lionel-messi' ].init_tables()
         lmessi_remote = season['fc-barcelona']['lionel-messi']['CL']
         lmessi_local = season_local['fc-barcelona']['lionel-messi']['CL']
         self.assertEqual(

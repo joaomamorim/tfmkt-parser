@@ -36,9 +36,12 @@ class Season:
         master_uri = self.local_uri if self.source == LOCAL else self.remote_uri
 
         # Create a the BeautifulSoup object containing the html for the master
-
-        self.soup = BeautifulSoup(safe_url_getter(master_uri), "html5lib")
-        self.logger.debug("Master soup is ready")
+        html = safe_url_getter(master_uri)
+        if html is not None:
+            self.soup = BeautifulSoup(html, "html5lib")
+            self.logger.debug("Master soup is ready")
+        else:
+            self.logger.error("Unable to obtain html from master")
 
     """
     Initialize the clubs for the season. Create a club in the 'clubs' list for each 'href' found in the master
@@ -59,6 +62,16 @@ class Season:
         elapsed_time = time.time() - start_time
         self.logger.info("Finished initializing clubs (%.2f seconds)" % (elapsed_time))
         #self.logger.info("Finished initializing clubs ({} seconds)".format(elapsed_time))
+
+    """
+    Triggers the souping of all clubs in the season, and propagates it down to players also.
+    It is equivalent to as full download of the season when source is REMOTE
+    """
+    def soup_season(self):
+        if self.clubs is None or self.size == 0:
+            self.init_clubs()
+        for club in self.clubs:
+            club.soup_club()
 
     """
     Force all players in a season to load their respective htmls from either local or remote and parse it into
@@ -91,7 +104,7 @@ class Season:
             f.write(str(self.soup))
         for club in self.clubs:
             if club.soup is not None:
-                self.logger.debug("Persisting {}".format(club.__repr__()))
+                self.logger.info("Persisting {}".format(club.__repr__()))
                 club.persist()
 
     """

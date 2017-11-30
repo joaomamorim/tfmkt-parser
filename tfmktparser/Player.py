@@ -40,7 +40,7 @@ class Player:
         self.position = ""
         self.soup = None
         self.tables = {}
-        self.source = LOCAL
+        self.source = source
 
         # Set local and remote uri attributes
         self.local_uri = "file:" + urllib.pathname2url(HOME_RAW + 'raw\\clubs\\CL_2017_%05d_%s\\PL_%05d_%s.html' % (club_id, club_name, self.id, self.name))
@@ -49,10 +49,20 @@ class Player:
         # Select uri to be used according to set mode
         self.update_current_uri()
 
-    def create_soup(self):
-        # Create a the BeautifulSoup object containing the html for the master
-        self.logger.info("Player URI is {}, creating soup".format(self.current_uri))
-        self.soup = BeautifulSoup(safe_url_getter(self.current_uri), "html5lib")
+    def create_soup(self, force=False):
+        # Keep souping from going ahead if a soup is already available. We can force souping to happend anyways
+        # by passing 'force'=True as an argument
+        if self.soup is not None and not force:
+            self.logger.debug("{} already souped, skipping. Force souping by passing 'force' flag".format(self.__repr__()))
+            return
+        # Go on and try to get the html resource from source
+        html = safe_url_getter(self.current_uri)
+        if html is None:
+            self.logger.error("{} error creating soup. We can try again later with 'soup_season'".format(self.__repr__()))
+            return
+            # Create a the BeautifulSoup object containing the html for the master
+        self.logger.debug("Player URI is {}, creating soup".format(self.current_uri))
+        self.soup = BeautifulSoup(html, "html5lib")
         self.logger.info("{} soup is ready".format(self.__repr__()))
 
     def __repr__(self):

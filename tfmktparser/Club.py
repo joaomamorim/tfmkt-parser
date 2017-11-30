@@ -16,7 +16,7 @@ class Club:
     for this club. The 'players' list gets filled up when a call to the class method 'init_players' is made.
     The 'persist' method saves the season to filesystem using a known structure.
     """
-    def __init__(self, id, name, uri, source = LOCAL):
+    def __init__(self, id, name, uri, source=LOCAL):
         # Get a logger reference for all objects of class Club
         self.logger = logging.getLogger(__name__)
 
@@ -40,10 +40,23 @@ class Club:
     def update_current_uri(self):
         self.current_uri = self.local_uri if self.source == LOCAL else self.remote_uri
 
-    def create_soup(self):
+    """
+    Retrieves the html resource from the current sources and parses it into a BeautifulSoup object
+    """
+    def create_soup(self, force=False):
+        # Keep souping from going ahead if a soup is already available. We can force souping to happend anyways
+        # by passing 'force'=True as an argument
+        if self.soup is not None and not force:
+            self.logger.debug("{} already souped, skipping. Force souping by passing 'force' flag".format(self.__repr__()))
+            return
+        # Go on and try to get the html resource from source
+        html = safe_url_getter(self.current_uri)
+        if html is None:
+            self.logger.error("{} error creating soup. We can try again later with 'soup_season'".format(self.__repr__()))
+            return
         # Initialize Club
         self.logger.info("Creating club from source {}".format(self.current_uri))
-        self.soup = BeautifulSoup(safe_url_getter(self.current_uri), "html5lib")
+        self.soup = BeautifulSoup(html, "html5lib")
         self.logger.info("Done initializing {}".format(self.__repr__()))
 
     @property
@@ -69,6 +82,17 @@ class Club:
                               remote_url).groups()
             self.players.append(Player(int(url_re[1]), url_re[0], remote_url, self.id, self.name, self.source))
         self.logger.info("{} finished initializing players".format(self.__repr__()))
+
+    """
+    Triggers club souping and initialization of the club's players. It propagates down to all club's players.
+    It is equivalent to a full download of the club, when run in REMOTE mode.
+    """
+    def soup_club(self):
+        self.create_soup()
+        if self.players is None or len(self.players) == 0:
+            self.init_players()
+        for player in self.players:
+            player.create_soup()
 
     def persist(self):
         if not os.path.exists("raw/clubs"):
