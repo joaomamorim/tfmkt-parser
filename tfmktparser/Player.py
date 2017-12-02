@@ -50,9 +50,9 @@ class Player:
         self.update_current_uri()
 
     def create_soup(self, force=False):
-        # Keep souping from going ahead if a soup is already available. We can force souping to happend anyways
+        # Keep souping from going ahead if a create_soup is already available. We can force souping to happend anyways
         # by passing 'force'=True as an argument
-        if self.soup is not None and not force:
+        if self.is_souped and not force:
             self.logger.debug("{} already souped, skipping. Force souping by passing 'force' flag".format(self.__repr__()))
             return
         # Go on and try to get the html resource from source
@@ -63,7 +63,7 @@ class Player:
             # Create a the BeautifulSoup object containing the html for the master
         self.logger.debug("Player URI is {}, creating soup".format(self.current_uri))
         self.soup = BeautifulSoup(html, "html5lib")
-        self.logger.info("{} soup is ready".format(self.__repr__()))
+        self.logger.debug("{} soup is ready".format(self.__repr__()))
 
     def __repr__(self):
         return "<Player: '%s' %d tables%s>" % (self.name, len(self.tables), " (not souped)" if self.soup is None else "")
@@ -84,6 +84,14 @@ class Player:
         if isinstance(item, int):
             return self.tables[0]
 
+    ##########################################################################################################
+    # PROPERTIES                                                                                             #
+    ##########################################################################################################
+
+    @property
+    def is_souped(self):
+        return True if self.soup is not None else False
+
     def set_position(self, position):
         try:
             self.position = self.POSITION_MAPPER[position]
@@ -91,7 +99,13 @@ class Player:
         except:
             self.position = self.UNK
 
-    def init_tables(self):
+    def init_tables(self, force=False):
+        # Avoid double initialization of tables
+        if len(self.tables) > 0 and not force:
+            self.logger.warning("{} avoided unintended initialization of tables, use 'force' flag to force it".format(self.__repr__()))
+            return
+        else:
+            self.tables = {}
         # Finds all responsive tables in the document. Keep in mind that the first one is a summary table
         # that we want to discard
         root_tables = self.soup.select("div.box div.responsive-table")
@@ -103,39 +117,59 @@ class Player:
         id_table_pairs = izip(table_ids, tables)
         for id, table in id_table_pairs:
             self.logger.debug("Parsing table {}".format(id))
-            self.tables[id] = self.parse_table(table)
+            if id not in ("gesamt"):
+                self.tables[id] = self.parse_table(table)
+            else:
+                self.logger.warning("{} found invalid table with id {}".format(self.__repr__(), id))
             self.logger.debug("Finished parsing table {}".format(id))
 
     def parse_table(self, table):
-        rows = [row for row in table.find("tbody").find_all("tr") if not row['class'][0] in ("bg_rot_20", "bg_gelb_20")]
+        self.logger.debug("{} raw table dump {}".format(self.__repr__(), table.find("tbody")))
+        all_rows = table.find("tbody").find_all("tr")
+        #self.logger.debug("{} all rows in list form: {}".find(self.__repr__(), sall_rows)))
+        rows = [row for row in table.find("tbody").find_all("tr") if row.has_attr('class') and not row['class'][0] in ("bg_rot_20", "bg_gelb_20", "bg_blau_20")]
         self.logger.debug("Found {} valid rows in this table".format(len(rows)))
         return pd.DataFrame.from_dict([self.parse_row(row) for row in rows], orient='columns')
 
     def parse_row(self, row):
-        self.logger.debug("[%40s] parsing row \n{\n %s \n}" % (self.name, row))
+        self.logger.debug("%s parsing row \n{\n %s \n}" % (self.__repr__(), row))
         figures = row.select("td")
+        if len(figures) < 13 :
+            self.logger.warning("{} unexpected number of elements in a table row".format(self.__repr__()))
+            return
         appearance = {}
         appearance['_DATE_'] = figures[1].string.strip()
         appearance['_HT_'] = re.match("/([\w\-]+)/.*",figures[2].find("a", class_="vereinprofil_tooltip")['href']).group(1)
         appearance['_HTID_'] = (figures[2].find("a", class_="vereinprofil_tooltip"))['id']
         appearance['_AT_'] = re.match("/([\w\-]+)/.*", figures[4].find("a", class_="vereinprofil_tooltip")['href']).group(1)
         appearance['_ATID_'] = (figures[4].find("a", class_="vereinprofil_tooltip"))['id']
-        appearance['_GID_'] = int(figures[6].find("a")['id'])
+        # The game is usually an attribute in row number 6 (inside de 'a' tag)
+        # Try to extract it by querying this 'id' inside of 'a'
+        try:
+            appearance['_GID_'] = int(figures[6].find("a")['id'])
+        # It can happen that the attribute 'id' is not present in some row, in such case fallback to extract
+        # the game id from the 'href' of the game
+        except KeyError:
+            self.logger.warning("{} missing attribute game 'id' for the row, attepting extraction from 'href'".format(self.__repr__()))
+            appearance['_GID_'] = int(re.search(r".*/([0-9]+)$", figures[6].find("a")['href']).group(1))
         parsed_result = re.search("([0-9]+):([0-9]+)", figures[6].find("span").text.strip())
         appearance['_GSH_'] = int(parsed_result.group(1))
         appearance['_GSA_'] = int(parsed_result.group(2))
-        appearance['_POS_'] = figures[7].find("a").string.strip() if figures[7].find("a") is not None else None
+        #appearance['_POS_'] = figures[7].find("a").string.strip() if figures[7].find("a") is not None else None
         appearance['_GS_'] = int(figures[8].string) if figures[8].string is not None else 0
         appearance['_AS_'] = int(figures[9].string) if figures[9].string is not None else 0
         appearance['_GSS_'] = int(figures[10].string) if figures[10].string is not None else 0
         appearance['_YC_'] = int(figures[10].string) if figures[10].string is not None else 0
-        try:
-            appearance['_RC_'] = int(figures[12].string) if figures[12].string is not None else 0
-        except:
-            self.logger.error("Unable to assign _RC_ for {}".format(self.name))
+        # try:
+        #     appearance['_RC_'] = int(figures[12].string) if figures[12].string is not None else 0
+        # except:
+        #     self.logger.error("Unable to assign _RC_ for {}".format(self.name))
         return appearance
 
     def persist(self):
+        if not self.is_souped:
+            self.logger.debug("{} is not souped, skip".format(self.__repr__()))
+            return
         club_dir = "raw/clubs/CL_2017_%05d_%s" % (self.club_id, self.club_name)
         if not os.path.exists(club_dir):
             os.makedirs(club_dir)
@@ -159,4 +193,31 @@ class Player:
     def update_current_uri(self):
         self.current_uri = self.local_uri if self.source == LOCAL else self.remote_uri
 
+    """
+    Triggers updating from remote
+    """
+    def update_soup_if(self, matcher):
+        #print matcher
+        condition, argument = matcher[0]
+        if condition(self, argument):
+            self.logger.info("{} matches condition {} for updating, refreshing".format(self.__repr__(), matcher[0]))
+            if self.source == LOCAL:
+                self.toggle_source()
+                self.create_soup(force=True)
+                self.init_tables(force=True)
+                self.toggle_source()
+            else:
+                self.create_soup(force=True)
+                self.init_tables(force=True)
+        else:
+            self.logger.debug("{} does not match condition for updating".format(self.__repr__()))
+
+    """
+    Conditions
+    """
+    def has_table(self, table):
+        return True if table in self.tables.keys() else False
+
+    # def is_fr1(self):
+    #     return True if "FR1" in self.tables.keys() else False
 
