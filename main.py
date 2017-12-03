@@ -4,6 +4,7 @@ import tfmktparser
 
 import tfmktparser.Season as tfmkse
 import tfmktparser.settings as tfmkdefs
+import tfmktparser.test as testutils
 from tfmktparser.Club import Club
 from tfmktparser.Player import Player
 
@@ -15,6 +16,9 @@ seas['fc-paris-saint-germain'].create_soup()
 seas['fc-paris-saint-germain'].init_players()
 seas['fc-paris-saint-germain']['kylian-mbappe'].create_soup()
 seas['fc-paris-saint-germain']['kylian-mbappe'].init_tables()
+full_player = testutils.init_by_coodrinates(seas, 'real-madrid', 'sergio-ramos')
+full_player = testutils.init_by_coodrinates(seas, 'fc-barcelona', 'luis-suarez')
+full_player = testutils.init_by_coodrinates(seas, 'fc-bayern-munchen', 'arjen-robben')
 seas.soup_season()
 seas.propagate_to_players(Player.init_tables)
 #seas['fc-paris-saint-germain']['kylian-mbappe'].init_tables()

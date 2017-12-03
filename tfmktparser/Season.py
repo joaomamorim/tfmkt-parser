@@ -109,20 +109,25 @@ class Season:
     """
     Propagates an operation to all clubs in the season
     """
-    def propagate_to_clubs(self, f):
-        self.logger.info("Propagating {} to all clubs".format(f))
+    def propagate_to_clubs(self, function):
+        self.logger.info("Propagating {} to all clubs".format(function))
         start_time = time.time()
         if self.size is not None and self.size > 0:
             # Call for initialization of all reason players
             for club in self.clubs:
-                f(club)
+                function(club)
             elapsed_time = time.time() - start_time
-            self.logger.info("Finished propagating (%.2f seconds)" % (elapsed_time))
+            self.logger.info("Finished propagating %s (%.2f seconds)" % (function, elapsed_time))
         else:
             self.logger.error("State of 'clubs' does not allow for propagation (null or empty)")
 
     """
     Propagates an operation to all players in the season.
+    *arguments optional parameter allows for specfifying parameters to function of the player instance.
+    Parameters in *arguments can be functions as well as values. This is the case, for example, for the
+    'update_players_soup' method, which propagates the method 'update_soup_if' down to all players. This
+    method takes as parameters a function and an argument (a condition evaluator and an argument to such
+    evaluator)
     """
     def propagate_to_players(self, function, *arguments):
         self.logger.info("Propagating {} to all players".format(function))
@@ -135,7 +140,7 @@ class Season:
                 else:
                     club.propagate_to_players(function, arguments)
             elapsed_time = time.time() - start_time
-            self.logger.info("Finished propagating (%.2f seconds)" % (elapsed_time))
+            self.logger.info("Finished propagating %s (%.2f seconds)" % (function, elapsed_time))
         else:
             self.logger.error("State of 'clubs' does not allow for propagation (null or empty)")
 

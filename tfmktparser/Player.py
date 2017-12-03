@@ -1,6 +1,6 @@
 import os
 import urllib
-import re
+from dateutil import parser as date_parser
 import pandas as pd
 from itertools import izip
 from bs4 import BeautifulSoup
@@ -28,6 +28,12 @@ class Player:
         "Centre-Forward" :      FOR
     }
 
+    ##########################################################################################################
+    # MAGIC                                                                                                  #
+    ##########################################################################################################
+    """
+    Class constructor...
+    """
     def __init__(self, id, name, remote_uri, club_id, club_name, source=LOCAL):
         # Get a logger reference for all objects of player class to use
         self.logger = logging.getLogger(__name__)
@@ -40,6 +46,7 @@ class Player:
         self.position = ""
         self.soup = None
         self.tables = {}
+        self.stats = None
         self.source = source
 
         # Set local and remote uri attributes
@@ -48,22 +55,6 @@ class Player:
 
         # Select uri to be used according to set mode
         self.update_current_uri()
-
-    def create_soup(self, force=False):
-        # Keep souping from going ahead if a create_soup is already available. We can force souping to happend anyways
-        # by passing 'force'=True as an argument
-        if self.is_souped and not force:
-            self.logger.debug("{} already souped, skipping. Force souping by passing 'force' flag".format(self.__repr__()))
-            return
-        # Go on and try to get the html resource from source
-        html = safe_url_getter(self.current_uri)
-        if html is None:
-            self.logger.error("{} error creating soup. We can try again later with 'soup_season'".format(self.__repr__()))
-            return
-            # Create a the BeautifulSoup object containing the html for the master
-        self.logger.debug("Player URI is {}, creating soup".format(self.current_uri))
-        self.soup = BeautifulSoup(html, "html5lib")
-        self.logger.debug("{} soup is ready".format(self.__repr__()))
 
     def __repr__(self):
         return "<Player: '%s' %d tables%s>" % (self.name, len(self.tables), " (not souped)" if self.soup is None else "")
@@ -92,6 +83,26 @@ class Player:
     def is_souped(self):
         return True if self.soup is not None else False
 
+    ##########################################################################################################
+    # REGULAR METHODS                                                                                        #
+    ##########################################################################################################
+
+    def create_soup(self, force=False):
+        # Keep souping from going ahead if a create_soup is already available. We can force souping to happend anyways
+        # by passing 'force'=True as an argument
+        if self.is_souped and not force:
+            self.logger.debug("{} already souped, skipping. Force souping by passing 'force' flag".format(self.__repr__()))
+            return
+        # Go on and try to get the html resource from source
+        html = safe_url_getter(self.current_uri)
+        if html is None:
+            self.logger.error("{} error creating soup. We can try again later with 'soup_season'".format(self.__repr__()))
+            return
+            # Create a the BeautifulSoup object containing the html for the master
+        self.logger.debug("Player URI is {}, creating soup".format(self.current_uri))
+        self.soup = BeautifulSoup(html, "html5lib")
+        self.logger.debug("{} soup is ready".format(self.__repr__()))
+
     def set_position(self, position):
         try:
             self.position = self.POSITION_MAPPER[position]
@@ -118,28 +129,62 @@ class Player:
         for id, table in id_table_pairs:
             self.logger.debug("Parsing table {}".format(id))
             if id not in ("gesamt"):
-                self.tables[id] = self.parse_table(table)
+                self.tables[id] = self.parse_table(id, table)
+                self.tables[id].set_index('_DATE_', inplace=True)
+                #self.tables[id]
             else:
                 self.logger.warning("{} found invalid table with id {}".format(self.__repr__(), id))
             self.logger.debug("Finished parsing table {}".format(id))
+        # Regenerate stats attribute (simply a merging of all tables)
+        self.stats = pd.concat(self.tables.values()) if len(self.tables) > 0 else None
 
-    def parse_table(self, table):
+    def parse_table(self, id,  table):
         self.logger.debug("{} raw table dump {}".format(self.__repr__(), table.find("tbody")))
         all_rows = table.find("tbody").find_all("tr")
         #self.logger.debug("{} all rows in list form: {}".find(self.__repr__(), sall_rows)))
-        rows = [row for row in table.find("tbody").find_all("tr") if row.has_attr('class') and not row['class'][0] in ("bg_rot_20", "bg_gelb_20", "bg_blau_20")]
-        self.logger.debug("Found {} valid rows in this table".format(len(rows)))
-        return pd.DataFrame.from_dict([self.parse_row(row) for row in rows], orient='columns')
+        #rows = [row for row in table.find("tbody").find_all("tr") if row.has_attr('class') and not row['class'][0] in ("bg_rot_20", "bg_gelb_20", "bg_blau_20")]
+        rows = [row for row in table.find("tbody").find_all("tr")]
+        self.logger.debug("Found {} rows in this table".format(len(rows)))
+        parsed_rows = [self.parse_row(id, row) for row in rows]
+        return pd.DataFrame.from_dict([row for row in parsed_rows if row is not None], orient='columns')
 
-    def parse_row(self, row):
+    def parse_row(self, id, row):
         self.logger.debug("%s parsing row \n{\n %s \n}" % (self.__repr__(), row))
+        # If the row is of class 'bg_blau_20' then it's a dummy row and we wont be able to parse anything from it
+        # Skip it
+        if row.find('td').has_attr('class') and "bg_blau_20" in row.find('td')['class']:
+            self.logger.debug("{} found blue row, skipping".format(self.__repr__()))
+            return None
+        # Assume at least the game information is present in the row
         figures = row.select("td")
-        if len(figures) < 13 :
-            self.logger.warning("{} unexpected number of elements in a table row".format(self.__repr__()))
-            return
+        # if len(figures) < 13 :
+        #     self.logger.warning("{} unexpected number of elements in a table row, requires checking".format(self.__repr__()))
+        #     return
+
+        # Init row
         appearance = {}
-        appearance['_DATE_'] = figures[1].string.strip()
-        appearance['_HT_'] = re.match("/([\w\-]+)/.*",figures[2].find("a", class_="vereinprofil_tooltip")['href']).group(1)
+        # The appearance is 'invalid' unless this is changed down in the flow
+        appearance['_V_'] = False
+        # Assign the competition 'id'. This is passed as a parameter to the parse_row function by the parse_table
+        # which actually extracts out the current competition id from the html
+        appearance['_C_'] = id
+        # Date in the 'detailed' view table is an a format such as 'Sep 30, 2017'. We extract the element and parse it
+        # into datetime value. We use the date_parser third party library, which automatically detects the correct
+        # format in the date string
+        appearance['_DATE_'] = date_parser.parse(figures[1].string.strip())
+        # Extract the name of the club. Normally it should be easy to find the team name in the 'href' attribute in the
+        # vereinprofil class
+        try:
+            href_with_teamn_name = figures[2].find("a", class_="vereinprofil_tooltip")['href']
+            appearance['_HT_'] = re.match(r"/([\w\-]+)/.*",href_with_teamn_name).group(1)
+        # but it can happen that the href has strange characteres. In such case the regex match
+        # fails and we run into a 'AttributeError'. We capture this exception, give a warning and assign 'None' to
+        # the 'HT' element for this appearance.
+        # Example: 'jan-bednarek' from 'fc-southampton' has an 'href' for the first game of the Europa Leage Qualifiers
+        # in 2017 of '/lech-pozna%C5%84/spielplan/verein/238/saison_id/2017'.
+        except AttributeError:
+            appearance['_HT_'] = None
+            self.logger.warning("{} was not able to extract 'HT' name from 'href' '{}', assign none".format(self.__repr__(), href_with_teamn_name))
         appearance['_HTID_'] = (figures[2].find("a", class_="vereinprofil_tooltip"))['id']
         appearance['_AT_'] = re.match("/([\w\-]+)/.*", figures[4].find("a", class_="vereinprofil_tooltip")['href']).group(1)
         appearance['_ATID_'] = (figures[4].find("a", class_="vereinprofil_tooltip"))['id']
@@ -155,11 +200,19 @@ class Player:
         parsed_result = re.search("([0-9]+):([0-9]+)", figures[6].find("span").text.strip())
         appearance['_GSH_'] = int(parsed_result.group(1))
         appearance['_GSA_'] = int(parsed_result.group(2))
+        # If the player had not played the game, trying to parse the rest of the statistics would give an error
+        # therefore we finish the parsing here when we find an identifier for 'not played'. Such identifier is
+        # the presence of any of the "bg_rot_20", "bg_gelb_20" or "bg_blau_20" class identifiers in the row
+        if row.has_attr('class') and row['class'][0] in ("bg_rot_20", "bg_gelb_20", "bg_blau_20"):
+            return appearance
+        # If the player played the game (we assume so if we have come this far) flag the appearance to 'valid'
+        appearance['_V_'] = True
         #appearance['_POS_'] = figures[7].find("a").string.strip() if figures[7].find("a") is not None else None
         appearance['_GS_'] = int(figures[8].string) if figures[8].string is not None else 0
         appearance['_AS_'] = int(figures[9].string) if figures[9].string is not None else 0
         appearance['_GSS_'] = int(figures[10].string) if figures[10].string is not None else 0
-        appearance['_YC_'] = int(figures[10].string) if figures[10].string is not None else 0
+        appearance['_YC_'] = int(figures[11].string[:-1:]) if figures[11].string is not None else None
+        appearance['_RC_'] = int(figures[12].string[:-1:]) if figures[12].string is not None else None
         # try:
         #     appearance['_RC_'] = int(figures[12].string) if figures[12].string is not None else 0
         # except:
