@@ -1,0 +1,3 @@
+select * from appearances_2017 where _NAME_ like '%Neymar%';
+
+SELECT distinct(concat(_NAME_, '|', _TEAM_, '|', _D_)) as pID from appearances_2017 where _NAME_ like '%Neymar%' order by _NAME_ asc;
