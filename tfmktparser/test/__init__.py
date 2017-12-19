@@ -17,7 +17,8 @@ class TestParsedStatistics(unittest.TestCase):
     # Here we validate that certain values in the tables have the expected values.
     def test_entries(self):
         # Test Messi appearance
-        seas = tfmkse.Season(0)
+        seas = tfmkse.Season([1], 0)
+        # Season page 1
         #self.assertTrue(validate_by_season_coordinates(seas, 'fc-barcelona', 'lionel-messi', 'ES1', 'Dec 2, 2017', '_GS_', 1))
         # Test Mbappe appearance
         self.assertTrue(validate_by_season_coordinates(seas, 'fc-paris-saint-germain', 'kylian-mbappe', 'FR1', '2017-09-30', '_AS_', 1))
@@ -33,9 +34,17 @@ class TestParsedStatistics(unittest.TestCase):
             init_by_coodrinates(seas,'fc-bayern-munchen', 'arjen-robben').stats.loc['2017-10-18', '_V_'][0] and
             init_by_coodrinates(seas,'fc-bayern-munchen', 'arjen-robben').stats.loc['2017-10-18', '_AS_'][0] == 1
         )
+        seas_page4 = tfmkse.Season([4], 0) # Season page 4
+        self.assertEqual(init_by_coodrinates(seas_page4, 'sc-freiburg', 'alexander-schwolow').stats['2017-08-20'])
+
+    def test_filtering(self):
+        seas = tfmkse.Season([1], 0)
+        player_with_dupes = init_by_coodrinates(seas, 'fc-paris-saint-germain', 'alec-georgen')
+        self.assertTrue("19YL" in player_with_dupes.tables.keys())
+        self.assertTrue(len(player_with_dupes.stats['2017-09-12']) == 1)
 
     def test_update(self):
-        seas = tfmkse.Season(0)
+        seas = tfmkse.Season([1], 0)
         try:
             validate_by_season_coordinates(seas, 'fc-barcelona', 'luis-suarez', 'ES1', '2017-12-2', '_GS_', None)
             self.assertTrue(validate_by_season_coordinates(seas, 'fc-barcelona', 'luis-suarez', 'ES1', '2017-12-2', '_GS_', None))
@@ -47,7 +56,7 @@ class TestParsedStatistics(unittest.TestCase):
     # 'nicolas-pareja' from 'sevilla' has a trailing invalid table, this test makes sure
     # this kind of situation does not affect a correct parsing of valid tables
     def test_filter_invalid_tables(self):
-        seas = tfmkse.Season(0)
+        seas = tfmkse.Season([1], 0)
         seas.init_clubs()
         seas['fc-sevilla'].create_soup()
         seas['fc-sevilla'].init_players()
@@ -66,7 +75,7 @@ class TestParsedStatistics(unittest.TestCase):
     # and validating that an arbitrary appearance from an arbitrary player is equal
     # in both cases
     def test_persistence(self):
-        season = tfmkse.Season(1)
+        season = tfmkse.Season([1], 1)
         remote_player = init_by_coodrinates(season,'fc-barcelona', 'lionel-messi')
         season.persist()
         del season

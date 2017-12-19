@@ -3,6 +3,7 @@ import urllib
 import time
 import os
 from bs4 import BeautifulSoup
+from sqlalchemy import create_engine
 
 # Module specific imports
 from settings import *
@@ -22,7 +23,7 @@ class Season:
     for this season. The 'clubs' list gets filled up when a call to the class method 'init_clubs' is made.
     The 'persist' method saves the season to filesystem using a known structure.
     """
-    def __init__(self, source = LOCAL):
+    def __init__(self, pages, source = LOCAL):
         # Get a logger reference for all objects of Season class to use
         self.logger = logging.getLogger(__name__)
         self.logger.info("Started season!")
@@ -32,19 +33,27 @@ class Season:
         self.clubs = []
         self.clubs_desc = []
         self.source = source
+        self.soups = []
 
         # Load master html from either a local file of from the remote server
-        self.local_uri = "file:" + urllib.pathname2url(HOME_RAW + "raw/sub-master_2017.html".replace('/', '\\'))
-        self.remote_uri = "https://www.transfermarkt.co.uk/vereins-statistik/wertvollstemannschaften/marktwertetop"
-        master_uri = self.local_uri if self.source == LOCAL else self.remote_uri
+        #self.local_base_uri = "file:" + urllib.pathname2url(HOME_RAW + "raw/sub-master_2017_page%d.html".replace('/', '\\'))
+        local_base_uri = "file:///" + HOME_RAW.replace('\\', '/') + "raw/sub-master_2017_page%d.html"
+        #local_base_uri = "file:" + urllib.pathname2url(HOME_RAW + "raw/sub-master_2017_page%d.html".replace('/', '\\'))
+        remote_base_uri = "https://www.transfermarkt.co.uk/vereins-statistik/wertvollstemannschaften/marktwertetop?page=%d"
+        self.local_uris = [ local_base_uri % page for page in pages]
+        self.remote_uris = [ remote_base_uri % page for page in pages]
+        master_base_uris = self.local_uris if self.source == LOCAL else self.remote_uris
 
-        # Create a the BeautifulSoup object containing the html for the master
-        html = safe_url_getter(master_uri)
-        if html is not None:
-            self.soup = BeautifulSoup(html, "html5lib")
-            self.logger.debug("Master soup is ready")
-        else:
-            self.logger.error("Unable to obtain html from master")
+        # Urls are necessary in order to obtains clubs names and ids and therefore instantiate the clubs
+        # All 100 clubs are splitted among a total of 4 pages. We loop throw all pages, concatenating all the
+        # clubs we find to 'remote_urls' list.
+        for url in master_base_uris:
+            html = safe_url_getter(url)
+            if html is not None:
+                self.soups.append(BeautifulSoup(html, "html5lib"))
+                self.logger.debug("Master soup page is ready: {}".format(url))
+            else:
+                self.logger.error("Unable to obtain html from master page: {}".format(url))
 
         """
     Implementation of the magic method __getitem_. Using this implementation we are able to find 'Club' objects
@@ -134,7 +143,8 @@ class Season:
         start_time = time.time()
         if self.size is not None and self.size > 0:
             # Call for initialization of all reason players
-            for club in self.clubs:
+            for i, club in enumerate(self.clubs):
+                self.logger.info("[%3s/%-3s] %s propagating %s" % (str(i), str(len(self.clubs)), club.__repr__(), str(function)))
                 if arguments is None or len(arguments) == 0:
                     club.propagate_to_players(function)
                 else:
@@ -159,8 +169,12 @@ class Season:
             return
         self.logger.info("Initizalizing clubs")
         start_time = time.time()
-        # Remote urls are necessary in order to obtains clubs names and ids and therefore instantiate the clubs
-        remote_urls = [HOST + tags['href'] for tags in self.soup.select("a.vereinprofil_tooltip")[::2]]
+
+        # Scan master pages for club urls
+        # Cummulate all urls the 'remote_urls' vector
+        remote_urls = []
+        for page in self.soups:
+            remote_urls += [HOST + tags['href'] for tags in page.select("a.vereinprofil_tooltip")[::2]]
 
         # For each club url found in the master create_soup, create a Club object containing id, name and uri
         for remote_url in remote_urls:
@@ -207,10 +221,11 @@ class Season:
     """
     def persist(self):
         self.logger.debug("Persisting season {}".format(self.__repr__()))
-        if not os.path.exists("raw"):
-            os.makedirs("raw")
-        with open("raw/sub-master_2017.html", 'w') as f:
-            f.write(str(self.soup))
+        for i, soup in enumerate(self.soups):
+            if not os.path.exists("raw"):
+                os.makedirs("raw")
+            with open("raw/sub-master_2017_page%d.html" % (i+1), 'w') as f:
+                f.write(str(soup))
         self.propagate_to_clubs(Club.persist)
         self.propagate_to_players(Player.persist)
 
@@ -222,7 +237,7 @@ class Season:
         # Toggle source attribute
         self.source = REMOTE if self.source == LOCAL else LOCAL
         # Update current uri
-        self.update_current_uri()
+        self.update_current_uris()
         self.propagate_to_clubs(Club.toggle_source)
         self.propagate_to_players(Player.toggle_source)
         self.logger.info("{} source is {}".format(self.__class__.__name__, self.source))
@@ -230,8 +245,8 @@ class Season:
     """
     Update the pointer to the current URI of the player, either to the transfermarket server or to a local file
     """
-    def update_current_uri(self):
-        self.current_uri = self.local_uri if self.source == LOCAL else self.remote_uri
+    def update_current_uris(self):
+        self.current_uris = self.local_uris if self.source == LOCAL else self.remote_uris
 
     """
     Triggers update of all players matching a certain condition from the remote server. The idea is to be able
@@ -239,3 +254,12 @@ class Season:
     """
     def update_players_soup(self, condition, argument):
         self.propagate_to_players(Player.update_soup_if, condition, argument)
+
+    """
+    Update mysql table
+    """
+    def update_mysql(self):
+        engine = create_engine("mysql+pymysql://david:david@localhost:3306/tfmkt")
+        engine.execute("DELETE FROM tfmkt.appearances_buffer;")
+        self.propagate_to_players(Player.to_mysql, engine)
+        engine.execute("REPLACE INTO tfmkt.appearances SELECT * FROM tfmkt.appearances_buffer;")

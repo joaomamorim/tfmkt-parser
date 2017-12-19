@@ -80,6 +80,7 @@ class Club:
         if self.players is None or len(self.players) == 0:
             self.logger.debug("{} cannot continue propagation: 'players' is null or empty".format(self.__repr__()))
             return
+
         for player in self.players:
             if arguments is None or len(arguments) == 0:
                 function(player)
@@ -109,7 +110,7 @@ class Club:
         for remote_url_compact in self.soup.select("span.hide-for-small a.spielprofil_tooltip"):
             remote_url = string.replace(HOST + remote_url_compact['href'] + "/saison/2017/plus/1#CL", "profil", "leistungsdaten") + "/saison/2017/plus/1#CL"
             remote_urls.append(remote_url)
-            url_re = re.match(r"https://www.transfermarkt.co.uk/([\w\-]+)/leistungsdaten/spieler/([0-9]+)/.*$",
+            url_re = re.match(r"https://www.transfermarkt.co.uk/([\w\-\%]+)/leistungsdaten/spieler/([0-9]+)/.*$",
                               remote_url).groups()
             self.players.append(Player(int(url_re[1]), url_re[0], remote_url, self.id, self.name, self.source))
         self.logger.info("{} finished initializing players".format(self.__repr__()))
@@ -130,9 +131,19 @@ class Club:
             self.logger.error("{} error creating soup. We can try again later with 'soup_season'".format(self.__repr__()))
             return
         # Initialize Club
-        self.logger.info("Creating club from source {}".format(self.current_uri))
+        self.logger.debug("Creating club from source {}".format(self.current_uri))
         self.soup = BeautifulSoup(html, "html5lib")
-        self.logger.info("Done initializing {}".format(self.__repr__()))
+        self.logger.debug("Done initializing {}".format(self.__repr__()))
+
+    def init_players_on_demand(self):
+        self.create_soup()
+        self.init_players()
+        self.soup = None
+
+    def persist_on_demand(self):
+        self.create_soup()
+        self.persist()
+        self.soup = None
 
     """
     Update the pointer to the current URI of the player, either to the transfermarket server or to a local file

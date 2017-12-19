@@ -1,5 +1,6 @@
 import os
 import urllib
+import sqlalchemy
 from dateutil import parser as date_parser
 import pandas as pd
 from itertools import izip
@@ -14,6 +15,15 @@ class Player:
     MID = 3
     FOR = 4
     UNK = 0
+
+    # Some times we find tables in the data that are messing up the constraint of 'one-appearance-per-day'
+    # for the player. This is because some players are in an intermediate stage between the first and the
+    # second team, and BOTH appearances are shown for a game of the first team and the second team. To avoid
+    # a situation when we have a player with two appearances in the same day, we filter out tables for
+    # secondary leagues and youth tournaments.
+    IGNORE_TABLES = ["19YL", "ES2", "GB21", "GB18", "RLB3", "IJ1", "RLW3", "RLSW",
+                     "RLN3", "RLN4", "L3", "OLW3", "PO2", "RU2", "NLJV", "CGB", "AJ3",
+                     "POMX"]
 
     POSITION_MAPPER = {
         "Keeper" :              GK,
@@ -115,6 +125,12 @@ class Player:
         if len(self.tables) > 0 and not force:
             self.logger.warning("{} avoided unintended initialization of tables, use 'force' flag to force it".format(self.__repr__()))
             return
+        # We require the player to be souped before we can parse any stats
+        elif not self.is_souped:
+            self.logger.debug("{} is not souped, cannot init tables".format(self.__repr__()))
+            return
+        # If the player is souped, the we are ready to parse the stats.
+        # We make sure the tables are empty and start with the parsing.
         else:
             self.tables = {}
         # Finds all responsive tables in the document. Keep in mind that the first one is a summary table
@@ -133,36 +149,102 @@ class Player:
                 self.tables[id].set_index('_DATE_', inplace=True)
                 #self.tables[id]
             else:
-                self.logger.warning("{} found invalid table with id {}".format(self.__repr__(), id))
+                self.logger.debug("{} found invalid table with id {}".format(self.__repr__(), id))
             self.logger.debug("Finished parsing table {}".format(id))
         # Regenerate stats attribute (simply a merging of all tables)
-        self.stats = pd.concat(self.tables.values()) if len(self.tables) > 0 else None
+        # Some tables contain duplicate appearances (such as 'YL19', where a parallel game is played between young
+        # teams every time an official 'CL' game is played)
+        filtered_stats = {key : value for (key, value) in self.tables.items() if key not in Player.IGNORE_TABLES} if len(self.tables) > 0 else None
+        self.stats = pd.concat(filtered_stats.values()) if filtered_stats is not None and len(filtered_stats) > 0 else None
 
     def parse_table(self, id,  table):
         self.logger.debug("{} raw table dump {}".format(self.__repr__(), table.find("tbody")))
-        all_rows = table.find("tbody").find_all("tr")
+        header_elements = table.find("thead").find_all("th")
+        header_dict = Player.parse_headers(header_elements)
+
         #self.logger.debug("{} all rows in list form: {}".find(self.__repr__(), sall_rows)))
         #rows = [row for row in table.find("tbody").find_all("tr") if row.has_attr('class') and not row['class'][0] in ("bg_rot_20", "bg_gelb_20", "bg_blau_20")]
         rows = [row for row in table.find("tbody").find_all("tr")]
         self.logger.debug("Found {} rows in this table".format(len(rows)))
-        parsed_rows = [self.parse_row(id, row) for row in rows]
+        parsed_rows = [self.parse_row(id, header_dict,row) for row in rows]
         return pd.DataFrame.from_dict([row for row in parsed_rows if row is not None], orient='columns')
 
-    def parse_row(self, id, row):
+    @staticmethod
+    def parse_headers(headers):
+        header_dict = {}
+        for i, element in enumerate(headers):
+            if element.string == "Match day":
+                header_dict['_MD_'] = i
+            elif element.string == "Date":
+                header_dict['_DATE_'] = i
+            elif element.string == "Home team":
+                header_dict['_HT_'] = i
+            elif element.string == "Visiting team":
+                header_dict['_AT_'] = i
+            elif element.string == "Result":
+                header_dict['_AGG_'] = i
+            elif element.string == "Pos.":
+                header_dict['_POS_'] = i
+            else:
+                # The column has no name, try to identify de column by the sibbling class to 'icons_sprite'
+                try:
+                    sibling_class = element.find('span')['class'][1]
+                    if sibling_class == "icon-tor-table-header":
+                        header_dict['_GS_'] = i
+                    elif sibling_class == "icon-vorlage-table-header":
+                        header_dict['_AS_'] = i
+                    elif sibling_class == "icon-eigentor-table-header":
+                        header_dict['_GSS_'] = i
+                    elif sibling_class == "icon-gelbekarte-table-header":
+                        header_dict['_YC_'] = i
+                    elif sibling_class == "icon-gelbrotekarte-table-header":
+                        header_dict['_Y2_'] = i
+                    elif sibling_class == "icon-rotekarte-table-header":
+                        header_dict['_RC_'] = i
+                    elif sibling_class == "icon-einwechslungen-table-header":
+                        header_dict['_SO_'] = i
+                    elif sibling_class == "icon-auswechslungen-table-header":
+                        header_dict['_SI_'] = i
+                    elif sibling_class == "icon-spielernote":
+                        header_dict['_R_'] = i
+                    elif sibling_class == "icon-minuten-table-header":
+                        header_dict['_MIN_'] = i
+                    else:
+                        print "No match: " + sibling_class
+                        return None
+                except :
+                    print "Exception"
+                    return None
+        return header_dict
+
+    def parse_row(self, id, headers, row):
         self.logger.debug("%s parsing row \n{\n %s \n}" % (self.__repr__(), row))
         # If the row is of class 'bg_blau_20' then it's a dummy row and we wont be able to parse anything from it
         # Skip it
         if row.find('td').has_attr('class') and "bg_blau_20" in row.find('td')['class']:
             self.logger.debug("{} found blue row, skipping".format(self.__repr__()))
             return None
-        # Assume at least the game information is present in the row
-        figures = row.select("td")
-        # if len(figures) < 13 :
-        #     self.logger.warning("{} unexpected number of elements in a table row, requires checking".format(self.__repr__()))
-        #     return
-
+        # Assume at least the game information is present in the row. Getting ready
+        # to parse game info. Get all row elemnts, excluding those with the 'no-border-rechts'
+        # class, since these mess up the column indices
+        all_figures = row.find_all("td")
+        figures = filter(lambda x: not "no-border-rechts" in x['class'],all_figures)
+        self.logger.debug("{} dump mappings figure name -> element".format(self.__repr__()))
+        for key, value in headers.iteritems():
+            try:
+                element_as_string = figures[value]
+            except IndexError:
+                element_as_string = "Empty"
+            self.logger.debug("%s(%d)  -> %s" % (key, value, element_as_string))
         # Init row
         appearance = {}
+        # Some row fields are available even before we start parsing the html
+        # These are the ones already parsed from the club html and the player url
+        appearance['_PID_'] = self.id           # The player numeric ID
+        appearance['_PNAME_'] = self.name       # The player name
+        appearance['_RPOS_'] = self.position    # The player raw position
+        appearance['_CID_'] = self.club_id      # The club id
+        appearance['_CNAME_'] = self.club_name  # The club name
         # The appearance is 'invalid' unless this is changed down in the flow
         appearance['_V_'] = False
         # Assign the competition 'id'. This is passed as a parameter to the parse_row function by the parse_table
@@ -171,33 +253,39 @@ class Player:
         # Date in the 'detailed' view table is an a format such as 'Sep 30, 2017'. We extract the element and parse it
         # into datetime value. We use the date_parser third party library, which automatically detects the correct
         # format in the date string
-        appearance['_DATE_'] = date_parser.parse(figures[1].string.strip())
+        appearance['_DATE_'] = date_parser.parse(figures[headers['_DATE_']].string.strip())
         # Extract the name of the club. Normally it should be easy to find the team name in the 'href' attribute in the
         # vereinprofil class
         try:
-            href_with_teamn_name = figures[2].find("a", class_="vereinprofil_tooltip")['href']
-            appearance['_HT_'] = re.match(r"/([\w\-]+)/.*",href_with_teamn_name).group(1)
+            href_with_teamh_name = figures[headers['_HT_']].find("a", class_="vereinprofil_tooltip")['href']
+            appearance['_HT_'] = re.match(r"/([\w\-]+)/.*",href_with_teamh_name).group(1)
         # but it can happen that the href has strange characteres. In such case the regex match
         # fails and we run into a 'AttributeError'. We capture this exception, give a warning and assign 'None' to
         # the 'HT' element for this appearance.
         # Example: 'jan-bednarek' from 'fc-southampton' has an 'href' for the first game of the Europa Leage Qualifiers
         # in 2017 of '/lech-pozna%C5%84/spielplan/verein/238/saison_id/2017'.
         except AttributeError:
-            appearance['_HT_'] = None
-            self.logger.warning("{} was not able to extract 'HT' name from 'href' '{}', assign none".format(self.__repr__(), href_with_teamn_name))
-        appearance['_HTID_'] = (figures[2].find("a", class_="vereinprofil_tooltip"))['id']
-        appearance['_AT_'] = re.match("/([\w\-]+)/.*", figures[4].find("a", class_="vereinprofil_tooltip")['href']).group(1)
-        appearance['_ATID_'] = (figures[4].find("a", class_="vereinprofil_tooltip"))['id']
+            appearance['_HT_'] =  re.match(r"/([\w\-\%]+)/.*",href_with_teamh_name).group(1)
+            self.logger.debug("{} was not able to extract 'HT' name from 'href' '{}', reattempting".format(self.__repr__(), href_with_teamh_name))
+        appearance['_HTID_'] = (figures[headers['_HT_']].find("a", class_="vereinprofil_tooltip"))['id']
+        # The 'AT' (Away Team) attribute is analogous to 'HT' and it can go through the same situations
+        try:
+            href_with_teama_name = figures[headers['_HT_']].find("a", class_="vereinprofil_tooltip")['href']
+            appearance['_AT_'] = re.match("/([\w\-]+)/.*", href_with_teama_name).group(1)
+        except AttributeError:
+            appearance['_AT_'] = re.match("/([\w\-\%]+)/.*", href_with_teama_name).group(1)
+            self.logger.debug("{} was not able to extract 'AT' name from 'href' '{}', reattempting".format(self.__repr__(), href_with_teama_name))
+        appearance['_ATID_'] = (figures[headers['_AT_']].find("a", class_="vereinprofil_tooltip"))['id']
         # The game is usually an attribute in row number 6 (inside de 'a' tag)
         # Try to extract it by querying this 'id' inside of 'a'
         try:
-            appearance['_GID_'] = int(figures[6].find("a")['id'])
+            appearance['_GID_'] = int(figures[headers['_AGG_']].find("a")['id'])
         # It can happen that the attribute 'id' is not present in some row, in such case fallback to extract
         # the game id from the 'href' of the game
         except KeyError:
-            self.logger.warning("{} missing attribute game 'id' for the row, attepting extraction from 'href'".format(self.__repr__()))
-            appearance['_GID_'] = int(re.search(r".*/([0-9]+)$", figures[6].find("a")['href']).group(1))
-        parsed_result = re.search("([0-9]+):([0-9]+)", figures[6].find("span").text.strip())
+            self.logger.debug("{} missing attribute game 'id' for the row, attepting extraction from 'href'".format(self.__repr__()))
+            appearance['_GID_'] = int(re.search(r".*/([0-9]+)$", figures[headers['_AGG_']].find("a")['href']).group(1))
+        parsed_result = re.search("([0-9]+):([0-9]+)", figures[headers['_AGG_']].find("span").text.strip())
         appearance['_GSH_'] = int(parsed_result.group(1))
         appearance['_GSA_'] = int(parsed_result.group(2))
         # If the player had not played the game, trying to parse the rest of the statistics would give an error
@@ -208,16 +296,48 @@ class Player:
         # If the player played the game (we assume so if we have come this far) flag the appearance to 'valid'
         appearance['_V_'] = True
         #appearance['_POS_'] = figures[7].find("a").string.strip() if figures[7].find("a") is not None else None
-        appearance['_GS_'] = int(figures[8].string) if figures[8].string is not None else 0
-        appearance['_AS_'] = int(figures[9].string) if figures[9].string is not None else 0
-        appearance['_GSS_'] = int(figures[10].string) if figures[10].string is not None else 0
-        appearance['_YC_'] = int(figures[11].string[:-1:]) if figures[11].string is not None else None
-        appearance['_RC_'] = int(figures[12].string[:-1:]) if figures[12].string is not None else None
-        # try:
-        #     appearance['_RC_'] = int(figures[12].string) if figures[12].string is not None else 0
-        # except:
-        #     self.logger.error("Unable to assign _RC_ for {}".format(self.name))
+        appearance['_GS_'] = int(figures[headers['_GS_']].string) if figures[headers['_GS_']].string is not None else 0
+        appearance['_AS_'] = int(figures[headers['_AS_']].string) if figures[headers['_AS_']].string is not None else 0
+        appearance['_GSS_'] = int(figures[headers['_GSS_']].string) if figures[headers['_GSS_']].string is not None else 0
+        # Yellow and red card columns usually contain the minute of the game that the player got the card. The last
+        # character in the string is a ' character signaling 'minutes'. We remove this character and try to cast the
+        # rest of the string as an integer. Example:
+        # <td class="zentriert">90'</td>
+        # It can happend that, the casting fails. This could be caused by some malformed or unexpected value in the
+        # string. In this case we flag the value as '-1', to inform that something was found but we were unable to
+        # parse it. Example: A 'checked' sign instead of the minute.
+        try:
+            appearance['_YC_'] = int(figures[headers['_YC_']].string[:-1:]) if figures[headers['_YC_']].string is not None else None
+        except ValueError:
+            appearance['_YC_'] = -1
+        try:
+            appearance['_RC_'] = int(figures[headers['_RC_']].string[:-1:]) if figures[headers['_RC_']].string is not None else None
+        except ValueError:
+            appearance['_RC_'] = -1
+        # Some players are also rated by trasfermarkt for their performance in the game.
+        # If we where going to save this rating as well, we can do so by completing the following line
+        # appearance['_R_'] = ... alexander-schwolow
+        # given that the row element in this case looks like this
+        # <paste-a-row-form-alexander-schwolow-from-freiburg>
+        # Note that when we will try to upload the player to mysql server, this column has to exist in
+        # the destination table
+        # Minutes are parsed analogously to yellow/red cards
+        appearance['_MIN_'] = int(figures[headers['_MIN_']].string[:-1:]) if figures[headers['_MIN_']].string is not None else "0"
         return appearance
+
+    def init_tables_on_demand(self):
+        if self.stats is None or len(self.stats) == 0:
+            self.create_soup()
+            self.init_tables()
+            self.soup = None
+        else:
+            self.logger.debug("{} has been initialized, skipping on-demand initialization".format(self.__repr__()))
+
+    def persist_on_demand(self):
+        self.create_soup()
+        self.persist()
+        self.soup = None
+
 
     def persist(self):
         if not self.is_souped:
@@ -271,6 +391,16 @@ class Player:
     def has_table(self, table):
         return True if table in self.tables.keys() else False
 
-    # def is_fr1(self):
-    #     return True if "FR1" in self.tables.keys() else False
+    """
+    Loads the player into a mysql table
+    """
+    def to_mysql(self, conn):
+        if self.stats is not None:
+            self.logger.debug("{} to mysql".format(self.__repr__()))
+            try:
+                self.stats.to_sql('appearances_buffer', conn[0][0], if_exists='append')
+            except sqlalchemy.exc.IntegrityError, err:
+                self.logger.error("{} threw an integrity error: {}".format(self.__repr__(), str(err)))
 
+        else:
+            self.logger.debug("{} has no stats, skip load to mysql".format(self.__repr__()))
