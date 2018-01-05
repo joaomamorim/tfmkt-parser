@@ -23,17 +23,13 @@ seas.init_clubs()
 # full_player = testutils.init_by_coodrinates(seas, 'fc-paris-saint-germain', 'alec-georgen')
 #seas.soup_season()
 seas.propagate_to_clubs(Club.init_players_on_demand)
-seas.propagate_to_players(Player.init_tables_on_demand)
-seas.update_mysql()
-#seas.propagate_to_players(Player.init_tables)
-#seas.update_mysql()
-#seas['fc-paris-saint-germain']['kylian-mbappe'].init_tables()
-#seas['west-ham.*'].propagate_to_players(Player.create_soup)
-#seas['west-ham.*'].propagate_to_players(Player.init_tables)
-#seas.persist()
+def fix_persistence(player):
+    player.create_soup()
+    if not player.is_souped:
+        player.toggle_source()
+        player.create_soup()
+        player.persist()
+        player.toggle_source()
+    player.soup = None
 
-#lmessi = season['fc-barcelona']['lionel-messi']
-#lmessi_tables = lmessi.create_soup.select("div.box div.responsive-table")
-
-
-#season['fc-barcelona']['lionel-messi'].parse_tables()
+seas.propagate_to_players(fix_persistence)

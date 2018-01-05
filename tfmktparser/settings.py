@@ -6,8 +6,9 @@ from retrying import retry
 LOCAL = 0
 REMOTE = 1
 HOST = "https://www.transfermarkt.co.uk"
-HOME_RAW = "C:\\Users\\david\\git\\tfmkt-parser\\"
-#HOME_RAW = "D:\\git-playground\\tfmkt-parser\\tfmkt-parser\\"
+#HOME_RAW = "C:\\Users\\david\\git\\tfmkt-parser\\"
+HOME_RAW = "D:\\git-playground\\tfmkt-parser\\"
+DATABASE = "mysql+pymysql://root:root@192.168.56.102:3306/tfmkt"
 
 """
 Helper function. Downloads from URL with retries

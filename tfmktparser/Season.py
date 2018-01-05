@@ -230,6 +230,20 @@ class Season:
         self.propagate_to_players(Player.persist)
 
     """
+    Persist a season to disk, but making a less intensive usage of memory.
+    """
+    def persist_on_demand(self):
+        self.logger.debug("Persisting season {}".format(self.__repr__()))
+        for i, soup in enumerate(self.soups):
+            if not os.path.exists("raw"):
+                os.makedirs("raw")
+            with open("raw/sub-master_2017_page%d.html" % (i+1), 'w') as f:
+                f.write(str(soup))
+        self.propagate_to_clubs(Club.persist_on_demand)
+        self.propagate_to_players(Player.persist_on_demand)
+
+
+    """
     Toggle mode form LOCAL to REMOTE or viceversa. It propagates the change all over the season clubs and players
     """
     def toggle_source(self):
@@ -259,7 +273,7 @@ class Season:
     Update mysql table
     """
     def update_mysql(self):
-        engine = create_engine("mysql+pymysql://david:david@localhost:3306/tfmkt")
+        engine = create_engine(DATABASE)
         engine.execute("DELETE FROM tfmkt.appearances_buffer;")
         self.propagate_to_players(Player.to_mysql, engine)
         engine.execute("REPLACE INTO tfmkt.appearances SELECT * FROM tfmkt.appearances_buffer;")

@@ -9,12 +9,32 @@ from bs4 import BeautifulSoup
 from settings import *
 
 class Player:
-
+    # In order to calculate the score for a given appearance we need to know the players
+    # position. It has to fall into one of the categories below.
     GK  = 1
     DEF = 2
     MID = 3
     FOR = 4
     UNK = 0
+
+    # The position mapper is just for pairing the raw position as it is parsed from the
+    # soup in string format to an integer representing the position on one of the categories
+    # above
+    POSITION_MAPPER = {
+        "Keeper" :              GK,
+        "Centre-Back" :         DEF,
+        "Left-Back" :           DEF,
+        "Right-Back" :          DEF,
+        "Defensive Midfield" :  MID,
+        "Left Midfield":        MID,
+        "Right Midfield":       MID,
+        "Central Midfield" :    MID,
+        "Attacking Midfield" :  MID,
+        "Left Wing" :           FOR,
+        "Right Wing" :          FOR,
+        "Secondary Striker":    FOR,
+        "Centre-Forward" :      FOR
+    }
 
     # Some times we find tables in the data that are messing up the constraint of 'one-appearance-per-day'
     # for the player. This is because some players are in an intermediate stage between the first and the
@@ -25,18 +45,7 @@ class Player:
                      "RLN3", "RLN4", "L3", "OLW3", "PO2", "RU2", "NLJV", "CGB", "AJ3",
                      "POMX"]
 
-    POSITION_MAPPER = {
-        "Keeper" :              GK,
-        "Centre-Back" :         DEF,
-        "Left-Back" :           DEF,
-        "Right-Back" :          DEF,
-        "Defensive Midfield" :  MID,
-        "Central Midfield" :    MID,
-        "Attacking Midfield" :  MID,
-        "Left Wing" :           FOR,
-        "Right Wing" :          FOR,
-        "Centre-Forward" :      FOR
-    }
+
 
     ##########################################################################################################
     # MAGIC                                                                                                  #
@@ -53,7 +62,9 @@ class Player:
         self.name = name
         self.club_id = club_id
         self.club_name = club_name
-        self.position = ""
+        self.raw_position = ""
+        self.birthdate = None
+        self.position = None
         self.soup = None
         self.tables = {}
         self.stats = None
@@ -106,18 +117,20 @@ class Player:
         # Go on and try to get the html resource from source
         html = safe_url_getter(self.current_uri)
         if html is None:
-            self.logger.error("{} error creating soup. We can try again later with 'soup_season'".format(self.__repr__()))
+            self.logger.error("{} [{}] souping failed. Retry with 'soup_season'".format(self.__repr__(), self.club_name))
+            self.soup = None
             return
             # Create a the BeautifulSoup object containing the html for the master
         self.logger.debug("Player URI is {}, creating soup".format(self.current_uri))
         self.soup = BeautifulSoup(html, "html5lib")
         self.logger.debug("{} soup is ready".format(self.__repr__()))
 
-    def set_position(self, position):
+    def set_position(self):
         try:
-            self.position = self.POSITION_MAPPER[position]
-            self.logger.debug("Setted {0} ({1}) position to {2}".format(self.name, self.id, position))
+            self.position = Player.POSITION_MAPPER[self.raw_position]
+            self.logger.debug("Setted {0} ({1}) position to {2}({3})".format(self.name, self.id, self.raw_position, self.position))
         except:
+            self.logger.debug("{} unable to set position {}".format(self.__repr__(), self.raw_position))
             self.position = self.UNK
 
     def init_tables(self, force=False):
@@ -133,7 +146,24 @@ class Player:
         # We make sure the tables are empty and start with the parsing.
         else:
             self.tables = {}
-        # Finds all responsive tables in the document. Keep in mind that the first one is a summary table
+
+        # Just before parsing tables, try to find some general information from the main panel of the player
+        # page. At the moment, we parse the player birthdate and the position in the field
+        # Collect the informations in the panel into an iterable
+        main_panel_figures = self.soup.\
+            find('div', class_ = 'dataMain').\
+            find_next_sibling('div', class_ = 'dataContent').\
+            select('div div p span.dataItem')
+        # The information about the position we will find it in the sibling node to the 'Postion' tag
+        self.raw_position = filter(lambda x: "Position" in x.string.strip(),main_panel_figures)[0].\
+            find_next_sibling().string.strip()
+        self.set_position()
+        # Similiarly, the birth date we find it in the "Born/age" element
+        raw_date = filter(lambda x: "Born/age" in x.string.strip(),main_panel_figures)[0]. \
+            find_next_sibling().string.strip()
+        #self.birthdate = date_parser.parse(raw_date)
+
+        # Find all responsive tables in the document. Keep in mind that the first one is a summary table
         # that we want to discard
         root_tables = self.soup.select("div.box div.responsive-table")
         # The table itself comes after the 'table' tag for each responsive table
@@ -240,11 +270,12 @@ class Player:
         appearance = {}
         # Some row fields are available even before we start parsing the html
         # These are the ones already parsed from the club html and the player url
-        appearance['_PID_'] = self.id           # The player numeric ID
-        appearance['_PNAME_'] = self.name       # The player name
-        appearance['_RPOS_'] = self.position    # The player raw position
-        appearance['_CID_'] = self.club_id      # The club id
-        appearance['_CNAME_'] = self.club_name  # The club name
+        appearance['_PID_'] = self.id               # The player numeric ID
+        appearance['_PNAME_'] = self.name           # The player name
+        appearance['_RPOS_'] = self.raw_position    # The player raw position
+        appearance['_POS_'] = self.position
+        appearance['_CID_'] = self.club_id          # The club id
+        appearance['_CNAME_'] = self.club_name      # The club name
         # The appearance is 'invalid' unless this is changed down in the flow
         appearance['_V_'] = False
         # Assign the competition 'id'. This is passed as a parameter to the parse_row function by the parse_table
@@ -270,7 +301,7 @@ class Player:
         appearance['_HTID_'] = (figures[headers['_HT_']].find("a", class_="vereinprofil_tooltip"))['id']
         # The 'AT' (Away Team) attribute is analogous to 'HT' and it can go through the same situations
         try:
-            href_with_teama_name = figures[headers['_HT_']].find("a", class_="vereinprofil_tooltip")['href']
+            href_with_teama_name = figures[headers['_AT_']].find("a", class_="vereinprofil_tooltip")['href']
             appearance['_AT_'] = re.match("/([\w\-]+)/.*", href_with_teama_name).group(1)
         except AttributeError:
             appearance['_AT_'] = re.match("/([\w\-\%]+)/.*", href_with_teama_name).group(1)
