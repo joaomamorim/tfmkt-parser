@@ -34,7 +34,7 @@ class Club:
 
         # Set local and remote uri attributes
         self.remote_uri = uri
-        self.local_uri = "file:" + urllib.pathname2url(HOME_RAW + ("raw/clubs/CL_2017_%05d_%s.html" % (id, name)).replace('/', '\\'))
+        self.local_uri = "file:" + urllib.pathname2url(HOME_RAW + ("raw/clubs/CL_2017_%05d_%s.html" % (id, name)))
 
         # Select the uri to use for the current mode
         self.update_current_uri()

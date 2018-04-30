@@ -270,6 +270,12 @@ class Season:
         self.propagate_to_players(Player.update_soup_if, condition, argument)
 
     """
+    Same as the previous one, but persisting and freeing the memory for the soup after each update
+    """
+    def update_players_soup_on_demand(self, condition, argument):
+        self.propagate_to_players(Player.update_soup_if_on_demand, condition, argument)
+
+    """
     Update mysql table
     """
     def update_mysql(self):

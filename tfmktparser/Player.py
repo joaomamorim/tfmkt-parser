@@ -71,7 +71,7 @@ class Player:
         self.source = source
 
         # Set local and remote uri attributes
-        self.local_uri = "file:" + urllib.pathname2url(HOME_RAW + 'raw\\clubs\\CL_2017_%05d_%s\\PL_%05d_%s.html' % (club_id, club_name, self.id, self.name))
+        self.local_uri = "file:" + urllib.pathname2url(HOME_RAW + 'raw/clubs/CL_2017_%05d_%s/PL_%05d_%s.html' % (club_id, club_name, self.id, self.name))
         self.remote_uri = remote_uri
 
         # Select uri to be used according to set mode
@@ -401,7 +401,6 @@ class Player:
     Triggers updating from remote
     """
     def update_soup_if(self, matcher):
-        #print matcher
         condition, argument = matcher[0]
         if condition(self, argument):
             self.logger.info("{} matches condition {} for updating, refreshing".format(self.__repr__(), matcher[0]))
@@ -415,6 +414,11 @@ class Player:
                 self.init_tables(force=True)
         else:
             self.logger.debug("{} does not match condition for updating".format(self.__repr__()))
+
+    def update_soup_if_on_demand(self, matcher):
+        self.update_soup_if(matcher)
+        self.persist()
+        self.soup = None
 
     """
     Conditions
