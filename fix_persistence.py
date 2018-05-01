@@ -2,16 +2,15 @@ import logging.config
 import yaml
 from sqlalchemy import create_engine
 import tfmktparser
-
-import tfmktparser.Season as tfmkse
-import tfmktparser.settings as tfmkdefs
+from tfmktparser import *
+#import tfmktparser.Season as tfmkse
 import tfmktparser.test as testutils
-from tfmktparser.Club import Club
-from tfmktparser.Player import Player
+#from tfmktparser.Club import Club
+
 
 
 logging.config.dictConfig(yaml.load(open('conf/logging.yaml')))
-seas = tfmkse.Season([1, 2, 3, 4], tfmkdefs.LOCAL)
+seas = Season([1, 2, 3, 4], Mode.LOCAL)
 seas.init_clubs()
 # seas['deportivo-la-coruna'].create_soup()
 # seas['deportivo-la-coruna'].init_players()

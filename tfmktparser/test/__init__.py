@@ -1,52 +1,39 @@
-#C:\Python27\python.exe -m unittest tfmktparser.test
 import unittest
-import datetime
-import logging.config
-import yaml
-
 from sets import Set
-
-import tfmktparser.Season as tfmkse
-import tfmktparser.settings as tfmkdefs
-from tfmktparser.Player import Player
-
-#logging.config.dictConfig(yaml.load(open('conf/logging.yaml')))
+from tfmktparser import *
 
 class TestParsedStatistics(unittest.TestCase):
 
     # Here we validate that certain values in the tables have the expected values.
     def test_entries(self):
-        # Test Messi appearance
-        seas = tfmkse.Season([1], 0)
-        # Season page 1
-        #self.assertTrue(validate_by_season_coordinates(seas, 'fc-barcelona', 'lionel-messi', 'ES1', 'Dec 2, 2017', '_GS_', 1))
-        # Test Mbappe appearance
+        # Load page 1
+        seas = Season([1], 0)
+        # Kylian Mbappe gave one assist on his game in the French Ligue 1 on 2017-09-30
         self.assertTrue(validate_by_season_coordinates(seas, 'fc-paris-saint-germain', 'kylian-mbappe', 'FR1', '2017-09-30', '_AS_', 1))
         # Test game id is extracted correctly when 'id' tag is not present (as-rome/alisson/Dec 1, 2017)
         self.assertTrue(validate_by_season_coordinates(seas, 'as-rom', 'alisson', 'IT1', '2017-12-1', '_GID_', 2897443))
-        # Test yellow cards are collected correctly
+        # Test yellow cards are extracted correctly
+        # Sergio Ramos got a yellow card on his Champions League game on 2017-11-1 in the 90'
         self.assertTrue(validate_by_season_coordinates(seas, 'real-madrid', 'sergio-ramos', 'CL', '2017-11-1', '_YC_', 90))
-        # Test 'HT' gets assigned a 'None' value in the scenario below. Check comments on 'parse_row' method for further details
-        self.assertIsNone(init_by_coodrinates(seas,'fc-southampton', 'jan-bednarek')['ELQ'].loc['2017-06-29']['_HT_'])
         # Test validity of an appearance: played/not played. Flagged by '_V_' field
+        # Arjen Robben was not of the game on 2017-09-19
         self.assertFalse(init_by_coodrinates(seas,'fc-bayern-munchen', 'arjen-robben').stats.loc['2017-09-19', '_V_'][0])
+        # but he played on 2017-10-18 and gave an assist
         self.assertTrue(
             init_by_coodrinates(seas,'fc-bayern-munchen', 'arjen-robben').stats.loc['2017-10-18', '_V_'][0] and
             init_by_coodrinates(seas,'fc-bayern-munchen', 'arjen-robben').stats.loc['2017-10-18', '_AS_'][0] == 1
         )
-        seas_page4 = tfmkse.Season([4], 0) # Season page 4
-        self.assertEqual(init_by_coodrinates(seas_page4, 'sc-freiburg', 'alexander-schwolow').stats['2017-08-20'])
 
     def test_filtering(self):
-        seas = tfmkse.Season([1], 0)
+        seas = Season([1], 0)
         player_with_dupes = init_by_coodrinates(seas, 'fc-paris-saint-germain', 'alec-georgen')
         self.assertTrue("19YL" in player_with_dupes.tables.keys())
         self.assertTrue(len(player_with_dupes.stats['2017-09-12']) == 1)
 
     def test_update(self):
-        seas = tfmkse.Season([1], 0)
+        seas = Season([1], 0)
+        seas['fc-barcelona']['luis-suarez']['ES1']
         try:
-            validate_by_season_coordinates(seas, 'fc-barcelona', 'luis-suarez', 'ES1', '2017-12-2', '_GS_', None)
             self.assertTrue(validate_by_season_coordinates(seas, 'fc-barcelona', 'luis-suarez', 'ES1', '2017-12-2', '_GS_', None))
         except IndexError:
             self.assertTrue(True)
@@ -56,7 +43,7 @@ class TestParsedStatistics(unittest.TestCase):
     # 'nicolas-pareja' from 'sevilla' has a trailing invalid table, this test makes sure
     # this kind of situation does not affect a correct parsing of valid tables
     def test_filter_invalid_tables(self):
-        seas = tfmkse.Season([1], 0)
+        seas = Season([1], 0)
         seas.init_clubs()
         seas['fc-sevilla'].create_soup()
         seas['fc-sevilla'].init_players()
@@ -75,11 +62,11 @@ class TestParsedStatistics(unittest.TestCase):
     # and validating that an arbitrary appearance from an arbitrary player is equal
     # in both cases
     def test_persistence(self):
-        season = tfmkse.Season([1], 1)
+        season = Season([1], 1)
         remote_player = init_by_coodrinates(season,'fc-barcelona', 'lionel-messi')
         season.persist()
         del season
-        season_local = tfmkse.Season(0)
+        season_local = Season([1], 0)
         local_player = init_by_coodrinates(season_local,'fc-barcelona', 'lionel-messi')
         lmessi_remote = remote_player['CL']
         lmessi_local = local_player['CL']
