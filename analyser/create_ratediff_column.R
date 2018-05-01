@@ -12,6 +12,7 @@ library(RMySQL)
 library(tidyverse)
 library(plyr)
 library(fbRanks)
+library(rpart)
 
 # Connect to database
 # Get 'raw' data
@@ -92,4 +93,10 @@ joined =
   mutate(attack.gain = attack.my_team - defense.their_team, defense.gain = defense.my_team + attack.their_team)
 
 # Grow the tree
-fit = rpart(scores.real.ary ~ `_POS_` + defense.gain + `_H_`, method = "anova", data = joined %>% filter(`_POS_` == 2))
+fit = rpart(scores.real.ary ~ `_POS_` + attack.gain + `_H_`, method = "anova", data = joined %>% filter(`_POS_` == 4))
+
+# Plot
+plot(fit, uniform=TRUE, 
+     main="Regression Tree for score")
+text(fit, use.n=TRUE, all=TRUE, cex=.8)
+
