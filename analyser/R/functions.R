@@ -1,5 +1,11 @@
+# Imports
+library(zoo) # Requirement for rollapply windowing function
+library(tidyverse)
+
 # Definitions
-numeric_vars = vars(`_GS_`, `_GSS_`, `_AS_`, `_MIN_`, `_GC_` ,`_YC_`, `_Y2_`, `_RC_`)
+statistical_columns = vars(`_POS_`, `_GS_`, `_GSS_`, `_AS_`, `_MIN_`, `_GC_` ,`_YC_`, `_Y2_`, `_RC_`, `_GSH_`, `_GSA_`)
+non_statistical_columns = vars(`_DATE_`, `_CNAME_`, `_H_`, `_GID_`, `_HT_`, `_AT_`)
+all_columns = vars(`_PNAME_`,`_CNAME_`, `_DATE_`, `_POS_`, `_GS_`, `_GSS_`, `_AS_`, `_MIN_`, `_GC_` ,`_YC_`, `_Y2_`, `_RC_`, `_H_`, `_GID_`, `_HT_`, `_AT_`, `_GSH_`, `_GSA_`)
 
 # Auxiliar function to calculate an appearance score based on the
 # stats. It takes one vector as the only parameter, where each
@@ -11,17 +17,17 @@ computeScore = function(x) {
   if(any(is.na(x[1:6]))) return(NA)
   # Variable unpack
   pos = x[1]
-  min = x[2]
-  gc = x[3]
-  gs = x[4]
-  gss = x[5]
-  as = x[6]
+  gs = x[2]
+  gss = x[3]
+  as = x[4]
+  min = x[5]
+  gc = x[6]
   yc = x[7]
   y2 = x[8]
   rc = x[9]
   # Calculate position based coeficients
   cgc_below = if(pos == 1 || pos == 2) 4 else if(pos == 3) 1 else 0
-  cgc_above = if(pos == 1 || pos == 2) 1 else 0
+  cgc_above = if(pos == 1 || pos == 2) 0.5 else 0
   # Calculate score
   return(
     # MINUTES
@@ -39,13 +45,13 @@ computeScore = function(x) {
     # Every assist rewards 3 points for every player
     as * 3 +
     # GOALS CONCEEDED
-    if ( gc <= 1) {
+    (if ( gc <= 1) {
       # If goals conceeded are under 1, use cgc_below coeficient
       (1-gc)*cgc_below
     } else {
       # If goals are above 1, we use cgc_above coeficient
       (1-gc)*cgc_above
-    } +
+    }) +
     # CARDS
     # We only use information about yellow cards (one and two)
     # It is difficult to combine with the information about red
@@ -71,7 +77,7 @@ computeMovingPredictions = function(data, memory, pFUN, ...){
             # In this case we use the windowing function 'rollapply' to constaint the 'mean'
             # function to a few occurances in the past
             mutate_at(
-              .vars = numeric_vars,
+              .vars = statistical_columns,
               # The 'rollapply' syntax requires that we pass the vector we want to apply the
               # function over in the 'data' parameter. Since we are inside a 'mutate_at' verb
               # we have to use the '.', placeholder character, to represent the changing column
@@ -89,14 +95,29 @@ computeMovingPredictions = function(data, memory, pFUN, ...){
               )
             ) %>%
             # Lag numeric variables by 1 sample. This make sure windowing affects only to rows in the past
-            mutate_at(.vars = numeric_vars, .funs = funs(dplyr::lag(x = ., n = 1)))
+            mutate_at(.vars = statistical_columns, .funs = funs(dplyr::lag(x = ., n = 1)))
             return(rolled_aplied)
           }
         )
       ) %>%
-    updatePredScores()
+    updatePredScores() %>%
+    # Calculate some extra columns
+    # The 'moving error' for the our predictions
+    mutate(
+      stats.err.tbl = map2(stats.real.tbl, stats.pred.tbl, ~ (as.matrix(.x) - as.matrix(.y)) %>% dplyr::as_tibble()),
+      scores.pred.mean = map_dbl(scores.pred.ary, mean, na.rm = TRUE),
+      scores.pred.sum = map_dbl(scores.pred.ary, sum, na.rm = TRUE),
+      scores.real.sum = map_dbl(scores.real.ary, sum, na.rm = TRUE),
+      scores.err.ary = map2(scores.pred.ary, scores.real.ary, ~ (as.matrix(.x) - as.matrix(.y))  %>% dplyr::as_tibble())
+    )
   # Return predictions together with a new column holding the 'mean' predicted score
-  return(predictions %>% mutate(scores.pred.mean = map_dbl(scores.pred.ary, mean, na.rm = TRUE)))
+  return(
+    predictions %>% 
+      mutate(
+        scores.err.mean = scores.pred.mean - scores.real.mean#,
+       # scores.err.std = map_dbl(scores.err.ary, sd, na.rm = TRUE)
+      )
+    )
 }
 
 # Clean out invalid rows and generate updated GC (Goals Condeeded)
@@ -105,17 +126,9 @@ consolidateTopN = function(data, top = 200, past = 10){
   cleanedSeason =
     data %>%
     # Filter to valid rows (rows with real appearances)
-    filter(`_V_` == TRUE) %>% 
-    # Filter out minor leages. Only rows from:
-    #  GB1 : Premier League
-    #  ES1 : La Liga
-    #  IT1 : Calccio
-    #  L1 : Bundesliga
-    #  FR1 : French league
-    #  PO1 : Portuguese League
-    #  UCL : Champions Leage
-    #  EL : Europa League
-    filter(`_C_` %in% c("GB1", "ES1", "IT1", "L1", "FR1", "PO1", "UCL", "EL")) %>%
+    filter(`_V_` == TRUE) %>%
+    # Add H/A information
+    mutate(`_H_` = ifelse(`_CID_` == `_HTID_`, TRUE, FALSE)) %>%
     # Update GC column with the goals conceeded by the player
     mutate(`_GC_` = ifelse(`_CID_` == `_HTID_`, `_GSA_`, `_GSH_`)) %>%
     # YC and RC columns are more useful when they represent 'number of occurances'
@@ -127,15 +140,17 @@ consolidateTopN = function(data, top = 200, past = 10){
   # Comment
   withScores =
     cleanedSeason %>%
-    select(`_PNAME_`, `_DATE_`, `_POS_`,`_MIN_`, `_GC_`, `_GS_`, `_GSS_`, `_AS_`, `_YC_`, `_Y2_`, `_RC_`) %>%
+    #select(`_PNAME_`, `_DATE_`, `_POS_`,`_MIN_`, `_GC_`, `_GS_`, `_GSS_`, `_AS_`, `_YC_`, `_Y2_`, `_RC_`, `_H_`, `_GID_`, `_HT_`, `_AT_`) %>%
+    select_at(.vars = all_columns) %>%
     # Group by player name and consolidate for each player in a nested table
     group_by(`_PNAME_`) %>%
     arrange(`_DATE_`) %>%
     nest(.key = 'stats.real.tbl') %>%
     # Prepare nested tables as pure numeric matrix splitting out the dates column
     mutate(
-      stats.dates.ary = map(stats.real.tbl,~.$`_DATE_`),
-      stats.real.tbl = map(stats.real.tbl, ~ select(., -(`_DATE_`)))
+      stats.meta.tbl = map(stats.real.tbl, ~ select_at(., non_statistical_columns)),
+      stats.real.tbl = map(stats.real.tbl, ~ select_at(., statistical_columns))
+      #stats.real.tbl = map(stats.real.tbl, ~ select(., -(`_DATE_`, `_GID_`, `_AT_`, `_HT_`, `_H_`)))
     ) %>%
     # Calculate scores
     updateRealScores() %>%
@@ -175,3 +190,5 @@ updatePredScores = function(data) {
       mutate(scores.pred.ary = map(stats.pred.tbl, ~ apply(., 1, computeScore)))
   )
 }
+
+#best_goalkeepers = movedAvg %>% mutate(pos = map_int(stats.real.tbl, ~.$`_POS_`[1])) %>% select(`_PNAME_`, pos, scores.real.mean, stats.real.tbl) %>% group_by(pos) %>% arrange(scores.real.mean %>% desc) %>% filter(pos == 1)

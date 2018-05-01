@@ -5,7 +5,7 @@ library(fbRanks)
 
 # Connect to database
 # Get 'raw' data
-conn<-dbConnect(MySQL(), dbname = 'tfmkt', user = 'root', password = 'root', host = '192.168.56.102')
+conn<-dbConnect(MySQL(), dbname = 'tfmkt', user = 'david', password = 'david', host = 'localhost')
 season_data = dplyr::as_tibble(dbGetQuery(conn, "SELECT * FROM tfmkt.appearances"))
 dbDisconnect(conn)
 
