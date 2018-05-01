@@ -1,6 +1,6 @@
 create database if not exists tfmkt;
-# Main entity. Holds the information of all the appearances parsed witht the web-scrapping tool
-# There are some views and tables which are complementary to this
+-- Main entity. Holds the information of all the appearances parsed witht the web-scrapping tool
+-- There are some views and tables which are complementary to this
 drop table if exists tfmkt.appearances;
 create table tfmkt.appearances (
 	_PID_ int not null comment 'A number identifying the player in the tfmkt system. Its supposed to be unique',
@@ -44,5 +44,6 @@ create table tfmkt.appearances (
     _MIN_ int comment 'Minutes played',
     CONSTRAINT APP_ID PRIMARY KEY(_DATE_, _PID_)
 );
-
-# Create a view with only some relevant fields from the appearences table
+-- On every new run of the scraper, the data is loaded into a buffer table in the first place. Later we update the main
+-- table with the values in the buffer
+CREATE TABLE tfmkt.appearances_buffer LIKE tfmkt.appearances;

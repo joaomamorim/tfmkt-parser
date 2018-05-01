@@ -3,7 +3,7 @@ import string
 import time
 import urllib
 import urllib2
-import logging
+import logging.config
 import re
 import yaml
 import sqlalchemy
@@ -99,9 +99,7 @@ class Season:
         self.soups = []
 
         # Load master html from either a local file of from the remote server
-        #self.local_base_uri = "file:" + urllib.pathname2url(HOME_RAW + "raw/sub-master_2017_page%d.html".replace('/', '\\'))
         local_base_uri = "file:///" + HOME_RAW.replace('\\', '/') + "raw/sub-master_2017_page%d.html"
-        #local_base_uri = "file:" + urllib.pathname2url(HOME_RAW + "raw/sub-master_2017_page%d.html".replace('/', '\\'))
         remote_base_uri = "https://www.transfermarkt.co.uk/vereins-statistik/wertvollstemannschaften/marktwertetop?page=%d"
         self.local_uris = [ local_base_uri % page for page in pages]
         self.remote_uris = [ remote_base_uri % page for page in pages]
@@ -263,6 +261,7 @@ class Season:
     ends correctly, the season object is ready to call on 'init_tables'
     """
     def soup_season(self):
+        logging.warn("A full season download will take up 2GB of RAM, use this 'soup_season' function wisely")
         start_time = time.time()
         if self.clubs is None or self.size == 0:
             self.logger.error("Clubs are not initialized, run 'init_clubs' first")
