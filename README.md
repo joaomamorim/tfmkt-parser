@@ -46,4 +46,4 @@ The `update_data.py` script shows another use case where we update the local cac
 The project ships with an R module that can be used to perform some analysis with the data obtained with the scrapping module.
 In the script `with_team_ratings.R` we fit a regression tree to the players data to predict performance based on historic data.
 
-![alt text](https://raw.githubusercontent.com/dcaribou/tfmkt-parser/master/analyser/score_tree_strikers.png)
+![alt text](analyser/score_tree_strikers.png)
